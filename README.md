@@ -152,6 +152,4 @@ node packages/benchmark/dist/cli.js C:/path/to/dataset.jsonl
 - token 是启发式估算；实际压力触发由 Harness 官方 `ctx.tokenMeter` 决定。
 - DSH 仍在 pre-release。升级官方包前应重新执行 `docs/API_COMPATIBILITY.md` 中的检查。
 
-## 下一阶段建议
-
-先用真实长对话做小规模基线：full history、官方 compaction、当前 v0.1 三组对比，测上下文 token、连续性、误召回和成本。只有 v0.1 确认有效后，再加入可插拔 embedding provider、current-truth/superseded、跨会话 scope 和更严格的 benchmark；Hebbian、情绪和复杂遗忘继续留在后续独立 ablation。
+### 本插件处于早期测试阶段，强烈建议不要加入到生产环境中
