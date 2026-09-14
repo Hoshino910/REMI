@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import type { CompactionTrace, RetrievalTrace } from '@dsh-memory/core'
+import type { CompactionTrace, EmotionVector, RetrievalTrace } from '@dsh-memory/core'
 
 export type TelemetryEvent =
   | {
@@ -20,6 +20,24 @@ export type TelemetryEvent =
     readonly type: 'memory/retrieval'
     readonly time: number
     readonly trace: RetrievalTrace
+  }
+  | {
+    readonly type: 'memory/window'
+    readonly time: number
+    readonly sessionId: string
+    readonly turn: number
+    readonly traceId: string
+    readonly selectedCount: number
+    readonly estimatedTokens: number
+    readonly delivery: 'runtime-context-snapshot'
+  }
+  | {
+    readonly type: 'memory/emotion-analysis'
+    readonly time: number
+    readonly sessionId: string
+    readonly queryFingerprint: string
+    readonly durationMs: number
+    readonly emotion: EmotionVector
   }
   | {
     readonly type: 'memory/compaction'

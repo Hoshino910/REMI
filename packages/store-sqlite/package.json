@@ -1,6 +1,6 @@
 {
   "name": "@dsh-memory/store-sqlite",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SQLite persistence for the DSH selective memory runtime.",
   "type": "module",
   "main": "dist/index.js",

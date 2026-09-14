@@ -1,4 +1,4 @@
-# DeepSeek Harness 0.1.5 agent-preset fragment.
+# REMI v0.2 / DeepSeek Harness 0.1.5 agent-preset fragment.
 # Replace the preset's entire existing `id: compaction` group with this group.
 # IMPORTANT: change the absolute Windows path below to this repository's built
 # packages/dsh-adapter/dist/index.js. Run `pnpm install` and `pnpm build` here first.
@@ -11,7 +11,7 @@
     toolResultPruner: true
   config:
     - id: selective-memory
-      name: 'C:/absolute/path/to/dsh-selective-memory/packages/dsh-adapter/dist/index.js'
+      name: 'file:///C:/absolute/path/to/dsh-selective-memory/packages/dsh-adapter/dist/index.js'
       config:
         databasePath: 'C:/absolute/path/to/dsh-data/memory.sqlite'
         telemetryPath: 'C:/absolute/path/to/dsh-data/memory-telemetry.jsonl'
@@ -19,9 +19,24 @@
         retrievalTokenBudget: 1400
         retrievalLimit: 8
         minRetrievalScore: 0.12
-        similarityWeight: 0.65
-        recencyWeight: 0.20
-        importanceWeight: 0.15
+        transparentWindowEnabled: true
+        similarityWeight: 0.55
+        recencyWeight: 0.15
+        importanceWeight: 0.10
+        associationWeight: 0.15
+        emotionWeight: 0.05
+        hebbianEnabled: true
+        hebbianSeedLimit: 4
+        hebbianEdgeLimit: 256
+        hebbianLearningRate: 0.08
+        hebbianMaxWeight: 1
+        hebbianHalfLifeDays: 45
+        # Optional: uses the currently routed DSH model unless both fields are set.
+        # This is an inference-only JSON classification call; it never trains a model.
+        emotionAnalysisEnabled: false
+        emotionAnalysisProvider: ''
+        emotionAnalysisModel: ''
+        emotionAnalysisMaxTokens: 160
         compactionSummaryTokenBudget: 900
         compactionThresholdRatio: 0.80
         compactionRetainRatio: 0.16

@@ -48,15 +48,15 @@ class MemoryArrayStore implements MemoryStore {
 
   async touch(): Promise<void> {}
   async appendTrace(_trace: RetrievalTrace): Promise<void> {}
-  async stats() { return { memories: this.records.size, traces: 0 } }
+  async stats() { return { memories: this.records.size, traces: 0, associations: 0 } }
   async close(): Promise<void> {}
 }
 
 const ABLATIONS: ReadonlyArray<{ name: string; config: MemoryRuntimeConfig }> = [
   { name: 'full', config: {} },
-  { name: 'similarity_only', config: { weights: { similarity: 1, recency: 0, importance: 0 } } },
-  { name: 'no_recency', config: { weights: { similarity: 0.8, recency: 0, importance: 0.2 } } },
-  { name: 'no_importance', config: { weights: { similarity: 0.76, recency: 0.24, importance: 0 } } },
+  { name: 'similarity_only', config: { hebbianEnabled: false, weights: { similarity: 1, recency: 0, importance: 0, association: 0, emotion: 0 } } },
+  { name: 'no_recency', config: { weights: { similarity: 0.65, recency: 0, importance: 0.15, association: 0.15, emotion: 0.05 } } },
+  { name: 'no_importance', config: { weights: { similarity: 0.65, recency: 0.15, importance: 0, association: 0.15, emotion: 0.05 } } },
 ]
 
 function mean(values: readonly number[]): number {

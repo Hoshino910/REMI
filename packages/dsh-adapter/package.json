@@ -1,7 +1,7 @@
 {
   "name": "@dsh-memory/dsh-adapter",
-  "version": "0.1.0",
-  "description": "DeepSeek Harness adapter for selective memory, retrieval injection, and extractive compaction.",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness adapter for transparent memory windows, associative retrieval, and extractive compaction.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

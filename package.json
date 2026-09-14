@@ -1,8 +1,8 @@
 {
   "name": "dsh-selective-memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "A DeepSeek Harness memory, retrieval, and extractive compaction plugin prototype.",
+  "description": "A DeepSeek Harness transparent memory-window, associative retrieval, and compaction plugin prototype.",
   "type": "module",
   "packageManager": "pnpm@11.19.0",
   "engines": {

@@ -1,6 +1,6 @@
 {
   "name": "@dsh-memory/benchmark",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Replayable retrieval benchmark and ablation harness for DSH selective memory.",
   "type": "module",
   "main": "dist/index.js",

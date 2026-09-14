@@ -1,4 +1,4 @@
-# Overlay for a profile that exposes the default provider as a root row with
+# REMI v0.2 overlay for a profile that exposes the default provider as a root row with
 # `id: compaction-basic`. Current standard/ptc agent presets use an isolated
 # group instead; use cordis.yml for those presets.
 
@@ -7,10 +7,18 @@
 
 - insert:
     - id: selective-memory
-      name: 'C:/absolute/path/to/dsh-selective-memory/packages/dsh-adapter/dist/index.js'
+      name: 'file:///C:/absolute/path/to/dsh-selective-memory/packages/dsh-adapter/dist/index.js'
       config:
         databasePath: 'C:/absolute/path/to/dsh-data/memory.sqlite'
         telemetryPath: 'C:/absolute/path/to/dsh-data/memory-telemetry.jsonl'
         retrievalTokenBudget: 1400
         retrievalLimit: 8
+        transparentWindowEnabled: true
+        similarityWeight: 0.55
+        recencyWeight: 0.15
+        importanceWeight: 0.10
+        associationWeight: 0.15
+        emotionWeight: 0.05
+        hebbianEnabled: true
+        emotionAnalysisEnabled: false
         compactionSummaryTokenBudget: 900

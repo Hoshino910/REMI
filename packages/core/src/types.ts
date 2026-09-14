@@ -1,5 +1,18 @@
 export type MemoryRole = 'user' | 'assistant' | 'tool' | 'unknown'
 
+export interface EmotionVector {
+  /** Pleasantness in [-1, 1]. */
+  readonly valence: number
+  /** Activation/intensity in [0, 1]. */
+  readonly arousal: number
+  /** Perceived control in [0, 1]. */
+  readonly dominance: number
+  /** Short provider-neutral labels, for example `calm` or `frustrated`. */
+  readonly labels: readonly string[]
+  readonly confidence: number
+  readonly source: 'model' | 'heuristic' | 'fallback'
+}
+
 export interface MemoryInput {
   readonly sessionId: string
   readonly sourceEventSeq?: number
@@ -8,6 +21,7 @@ export interface MemoryInput {
   readonly content: string
   readonly timestamp: number
   readonly importance?: number
+  readonly emotion?: EmotionVector
   readonly metadata?: Readonly<Record<string, string | number | boolean | null>>
 }
 
@@ -21,6 +35,7 @@ export interface MemoryRecord {
   readonly contentHash: string
   readonly embedding: readonly number[]
   readonly importance: number
+  readonly emotion?: EmotionVector
   readonly createdAt: number
   readonly lastAccessedAt: number
   readonly accessCount: number
@@ -37,6 +52,8 @@ export interface RetrievalCandidateTrace {
   readonly similarityScore: number
   readonly recencyScore: number
   readonly importanceScore: number
+  readonly associationScore: number
+  readonly emotionScore: number
   readonly finalScore: number
   readonly estimatedTokens: number
   readonly decision: CandidateDecision
@@ -53,6 +70,9 @@ export interface RetrievalTrace {
   readonly estimatedTokens: number
   readonly candidateCount: number
   readonly selectedCount: number
+  readonly associationEdgesRead: number
+  readonly reinforcedEdges: number
+  readonly queryEmotion?: EmotionVector
   readonly weights: RetrievalWeights
   readonly candidates: readonly RetrievalCandidateTrace[]
 }
@@ -68,6 +88,7 @@ export interface RetrievalRequest {
   readonly query: string
   readonly tokenBudget: number
   readonly limit?: number
+  readonly emotion?: EmotionVector
   readonly now?: number
 }
 
@@ -82,6 +103,28 @@ export interface RetrievalWeights {
   readonly similarity: number
   readonly recency: number
   readonly importance: number
+  readonly association: number
+  readonly emotion: number
+}
+
+export interface AssociationEdge {
+  readonly sessionId: string
+  readonly sourceMemoryId: string
+  readonly targetMemoryId: string
+  readonly weight: number
+  readonly coActivationCount: number
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+export interface AssociationReinforcement {
+  readonly sessionId: string
+  readonly memoryIds: readonly string[]
+  readonly activations: Readonly<Record<string, number>>
+  readonly at: number
+  readonly learningRate: number
+  readonly maxWeight: number
+  readonly halfLifeDays: number
 }
 
 export interface MemoryRuntimeConfig {
@@ -92,6 +135,12 @@ export interface MemoryRuntimeConfig {
   readonly maxItemChars?: number
   readonly traceCandidateLimit?: number
   readonly weights?: Partial<RetrievalWeights>
+  readonly hebbianEnabled?: boolean
+  readonly hebbianSeedLimit?: number
+  readonly hebbianEdgeLimit?: number
+  readonly hebbianLearningRate?: number
+  readonly hebbianMaxWeight?: number
+  readonly hebbianHalfLifeDays?: number
 }
 
 export interface CompactionEntry {
@@ -130,6 +179,7 @@ export interface CompactionResult {
 export interface StoreStats {
   readonly memories: number
   readonly traces: number
+  readonly associations: number
 }
 
 export interface MemoryStore {
@@ -137,6 +187,12 @@ export interface MemoryStore {
   listBySession(sessionId: string, limit: number): Promise<readonly MemoryRecord[]>
   touch(ids: readonly string[], at: number): Promise<void>
   appendTrace(trace: RetrievalTrace): Promise<void>
+  listAssociations?(
+    sessionId: string,
+    memoryIds: readonly string[],
+    limit: number,
+  ): Promise<readonly AssociationEdge[]>
+  reinforceAssociations?(input: AssociationReinforcement): Promise<number>
   stats(): Promise<StoreStats>
   close(): Promise<void>
 }
