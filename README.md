@@ -1,4 +1,6 @@
-# DSH Selective Memory v0.1
+# REMI
+
+> Adaptive Memory for AI — DeepSeek Harness selective-memory plugin v0.1
 
 一个面向 **DeepSeek Harness** 的长期上下文原型插件。它不是 Web 应用，不训练模型，也不替换 Harness 的 Agent Loop；它通过 Harness 的公开 Cordis 扩展点观察会话、写入 SQLite、在模型调用前召回有限记忆，并用自定义 extractive checkpoint 替换过旧的模型可见历史。
 
