@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.jsonl
+.dsh-memory/
+upstream-deepseek-harness-*/
+.upstream-deepseek-harness/
+
+# ChatGPT project mirror/reference material; not part of the public plugin.
+sources/
+AGENTS.md

@@ -1,0 +1,22 @@
+{
+  "name": "dsh-selective-memory",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A DeepSeek Harness memory, retrieval, and extractive compaction plugin prototype.",
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm build && vitest run",
+    "benchmark": "pnpm --filter @dsh-memory/benchmark benchmark"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  }
+}

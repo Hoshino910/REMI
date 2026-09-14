@@ -1,0 +1,39 @@
+# DeepSeek Harness 0.1.5 agent-preset fragment.
+# Replace the preset's entire existing `id: compaction` group with this group.
+# IMPORTANT: change the absolute Windows path below to this repository's built
+# packages/dsh-adapter/dist/index.js. Run `pnpm install` and `pnpm build` here first.
+
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: selective-memory
+      name: 'C:/absolute/path/to/dsh-selective-memory/packages/dsh-adapter/dist/index.js'
+      config:
+        databasePath: 'C:/absolute/path/to/dsh-data/memory.sqlite'
+        telemetryPath: 'C:/absolute/path/to/dsh-data/memory-telemetry.jsonl'
+        telemetryEnabled: true
+        retrievalTokenBudget: 1400
+        retrievalLimit: 8
+        minRetrievalScore: 0.12
+        similarityWeight: 0.65
+        recencyWeight: 0.20
+        importanceWeight: 0.15
+        compactionSummaryTokenBudget: 900
+        compactionThresholdRatio: 0.80
+        compactionRetainRatio: 0.16
+        autoCompaction: true
+
+    # The command is backend-independent and resolves this group's compaction service.
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024

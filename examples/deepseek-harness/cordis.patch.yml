@@ -1,0 +1,16 @@
+# Overlay for a profile that exposes the default provider as a root row with
+# `id: compaction-basic`. Current standard/ptc agent presets use an isolated
+# group instead; use cordis.yml for those presets.
+
+- id: compaction-basic
+  disabled: true
+
+- insert:
+    - id: selective-memory
+      name: 'C:/absolute/path/to/dsh-selective-memory/packages/dsh-adapter/dist/index.js'
+      config:
+        databasePath: 'C:/absolute/path/to/dsh-data/memory.sqlite'
+        telemetryPath: 'C:/absolute/path/to/dsh-data/memory-telemetry.jsonl'
+        retrievalTokenBudget: 1400
+        retrievalLimit: 8
+        compactionSummaryTokenBudget: 900

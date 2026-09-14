@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-memory/benchmark",
+  "version": "0.1.0",
+  "description": "Replayable retrieval benchmark and ablation harness for DSH selective memory.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "dsh-memory-benchmark": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "benchmark": "node dist/cli.js ../../examples/benchmark/sample.jsonl"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "@dsh-memory/core": "workspace:*"
+  },
+  "license": "MIT"
+}
