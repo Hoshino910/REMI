@@ -1,6 +1,6 @@
 # REMI
 
-> Adaptive Memory for AI · DeepSeek Harness 插件 · v0.2.0
+> Adaptive Memory for AI · DeepSeek Harness 插件 · v0.2.1
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -10,16 +10,27 @@ REMI 不是独立 Web 应用，不替换 Harness Agent Loop，也不训练或微
 
 > **当前状态：**早期测试版本，请勿用于生产环境。
 
+v0.2.1 的改动见 [CHANGELOG.md](CHANGELOG.md)，测试证据和边界见 [验证说明](docs/V0.2.1_VALIDATION.md)。
+
 ## 功能
 
 - 通过 `session/event` 观察 `user/message`、`assistant/message` 和 `tool/result`。
 - 使用 Node.js 内置 `node:sqlite` 保存记忆、affect 提示、检索 trace 和关联边。
 - 在 `agent/inbox/claimed` 捕获当前查询，通过 `system-prompt/assemble` 注入一个有界的 runtime-context snapshot。
 - 使用 hashed bag-of-tokens cosine、lexical Jaccard、recency、importance、association 和 affect 对候选记忆进行排序。
+- 内容感知排序在仅用于打分的视图中去除通用回溯/输出模板，使用语料 IDF 加权词面证据，并降低提问和确认回复的权重。保留原始记忆文字，不训练模型。
 - 对同一检索窗口内共同选中的记忆执行有界 Hebbian 强化。
 - 可选通过 DSH `ctx.llm.stream()` 获取结构化 affect JSON；不涉及模型训练，调用失败时回退到本地启发式。
 - 继承官方 `BasicCompactionEngine`，保留 Harness 压缩事务，只替换 checkpoint 摘要策略。
+- 桌面版通过文件加载时，使用当前 DSH 宿主自带的压缩引擎，避免与工作区开发依赖的 surface 格式混用。
+- 插件注入、技能目录和 Agent 指令不进入记忆或摘要；历史注入记录保留用于审计，但会被检索隔离。干净的官方连续性 checkpoint 仍可参与再次压缩。
 - 输出不包含原始 query 的 JSONL telemetry，并在 SQLite 中保存完整 `RetrievalTrace`。
+
+### 检索排序配置
+
+`contentAwareRetrievalEnabled` 默认 `true`；设为 `false` 可运行原 `raw-v0.2` 排序消融。`minLexicalCoverage` 默认 `0.15`，防止仅凭 recency、importance、affect 或哈希碰撞召回无关记录。提问仍可作为低权重背景，但在内容感知模式下不作为 Hebbian seed 或强化对象。陈述分类是中英文启发式，不等于验证事实真伪；相似实体和同义改写仍需测试。
+
+Trace 新增 `scoringVersion`、`contentKind`、`utilityFactor`、`queryCoverage`。内容感知 embedding 从打分视图重新计算，旧原文和 raw embedding 无需破坏性迁移。Benchmark run 同样标记排序版本，跨版本比较时需保留该标记。
 
 ## 环境要求
 

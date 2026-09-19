@@ -75,6 +75,40 @@ class TestStore implements MemoryStore {
 }
 
 describe('SelectiveMemoryRuntime', () => {
+  it.each([
+    ['请回溯最早的雾岭盒包装约定，输出颜色和禁止颜色。只输出相应字段的 JSON，不猜测、不调用工具。', '雾岭盒包装颜色只能使用墨绿色，禁止使用亮橙色。只回复已收到。', '请回溯最早的山泉盒包装约定，输出颜色和禁止颜色。只输出相应字段的 JSON，不猜测、不调用工具。'],
+    ['Please recall the earliest Cedar database port agreement. Only output JSON.', 'Cedar database port is 9123. Only reply received.', 'Please recall the earliest Maple database port agreement. Only output JSON.'],
+  ])('ranks answer-bearing facts ahead of boilerplate recall questions at K=1', async (query, fact, decoy) => {
+    const store = new TestStore()
+    const runtime = new SelectiveMemoryRuntime(store)
+    for (const [seq, content] of [fact, decoy, query, '约定已收到'].entries()) {
+      await runtime.ingest({ sessionId: 'ranking', sourceEventSeq: seq, role: 'user', sourceType: 'user/message', content, timestamp: seq + 1 })
+    }
+    const result = await runtime.retrieve({ sessionId: 'ranking', query, tokenBudget: 800, limit: 1, now: 10 })
+    expect(result.memories[0]?.memory.content).toContain(fact.normalize('NFKC').split('.')[0])
+    expect(result.trace.scoringVersion).toBe('content-aware-v1')
+    expect(result.trace.candidates.some(c => c.contentKind === 'question' && c.utilityFactor === 0.2)).toBe(true)
+  })
+
+  it('does not retrieve unrelated facts solely through recency, importance or hash collision', async () => {
+    const runtime = new SelectiveMemoryRuntime(new TestStore(), { minScore: 0 })
+    await runtime.ingest({ sessionId: 'unknown', role: 'user', sourceType: 'user/message', content: 'SQLite database port is 6389.', importance: 1, timestamp: 10 })
+    const result = await runtime.retrieve({ sessionId: 'unknown', query: '未设定仓库的地址是什么？', tokenBudget: 800, now: 11 })
+    expect(result.memories).toHaveLength(0)
+    expect(result.trace.candidates[0]?.decision).toBe('below-min-relevance')
+  })
+
+  it('does not reinforce questions even if explicitly selected as contextual background', async () => {
+    const store = new TestStore()
+    const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
+    for (const [seq, content] of ['What is the Cedar database port?', 'Please recall the Cedar database port.'].entries()) {
+      await runtime.ingest({ sessionId: 'question-graph', sourceEventSeq: seq, role: 'user', sourceType: 'user/message', content, timestamp: seq + 1 })
+    }
+    const result = await runtime.retrieve({ sessionId: 'question-graph', query: 'Cedar database port', tokenBudget: 800, limit: 2, now: 10 })
+    expect(result.memories).toHaveLength(2)
+    expect(result.trace.reinforcedEdges).toBe(0)
+  })
+
   it('retrieves relevant memory and exposes component scores', async () => {
     const store = new TestStore()
     const runtime = new SelectiveMemoryRuntime(store, { minScore: 0.05 })

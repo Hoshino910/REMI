@@ -1,6 +1,6 @@
 {
   "name": "@dsh-memory/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Harness-agnostic selective memory runtime.",
   "type": "module",
   "main": "dist/index.js",

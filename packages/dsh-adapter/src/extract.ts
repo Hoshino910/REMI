@@ -4,6 +4,14 @@ import type { CompactionEntry, MemoryInput, MemoryRole } from '@dsh-memory/core'
 
 export const PLUGIN_ID = 'dsh-selective-memory'
 
+/** v0.2 indexes durable conversation, not plugin/context/catalog injections.
+ * Check provenance, not text markers: a real user's quoted XML is still input.
+ */
+export function isGeneratedContext(message: Message): boolean {
+  const kind: string = message.source.kind
+  return kind === 'plugin' || kind === 'skill-catalog' || kind === 'agent-instructions'
+}
+
 function sourcePlugin(message: Message): string | undefined {
   const source = message.source
   return source.kind === 'plugin' ? source.plugin : undefined
@@ -24,7 +32,7 @@ export function extractQuery(messages: readonly UserMessage[]): string {
     .map(message => contentToText(message.content))
     .filter(Boolean)
   const fallback = messages
-    .filter(message => sourcePlugin(message) !== PLUGIN_ID)
+    .filter(message => !isGeneratedContext(message))
     .map(message => contentToText(message.content))
     .filter(Boolean)
   return (preferred.length > 0 ? preferred : fallback).join('\n')
@@ -50,8 +58,7 @@ function messageInput(
   role: MemoryRole,
   maxChars: number,
 ): MemoryInput | undefined {
-  const plugin = sourcePlugin(message)
-  if (plugin === PLUGIN_ID || plugin === 'compact') return
+  if (isGeneratedContext(message)) return
   const extracted = truncateEvent(contentToText(message.content), maxChars)
   if (extracted.text.length === 0) return
   return {
@@ -90,9 +97,14 @@ export function messageToCompactionEntry(
   message: Message,
   timestamp: number,
 ): CompactionEntry | undefined {
-  if (message.role === 'system') return
   const content = contentToText(message.content)
-  if (content.length === 0 || sourcePlugin(message) === PLUGIN_ID) return
+  // A clean official continuity checkpoint may be re-summarized, but is never
+  // re-ingested. Reject old checkpoints carrying already polluted windows.
+  const checkpoint = sourcePlugin(message) === 'compact'
+    && typeof (message.source as { compactionId?: unknown }).compactionId === 'string'
+    && !/<memory-context\b/u.test(content)
+  if (message.role === 'system' || (isGeneratedContext(message) && !checkpoint)) return
+  if (content.length === 0) return
   const role: MemoryRole = message.source.kind === 'tool'
     ? 'tool'
     : message.role === 'assistant' ? 'assistant' : 'user'

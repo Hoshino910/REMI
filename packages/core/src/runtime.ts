@@ -23,6 +23,7 @@ import type {
   RetrievalTrace,
   RetrievalWeights,
 } from './types.js'
+import { contentKind, lexicalRanker, retrievalView, utilityFactor, type MemoryContentKind } from './ranking.js'
 
 const DAY_MS = 86_400_000
 const DEFAULT_WEIGHTS: RetrievalWeights = {
@@ -34,6 +35,9 @@ const DEFAULT_WEIGHTS: RetrievalWeights = {
 }
 
 interface ScoredCandidate {
+  readonly contentKind: MemoryContentKind
+  readonly utilityFactor: number
+  readonly queryCoverage: number
   readonly memory: MemoryRecord
   readonly embeddingScore: number
   readonly lexicalScore: number
@@ -49,6 +53,8 @@ interface ScoredCandidate {
 }
 
 interface ResolvedConfig {
+  readonly contentAwareRetrievalEnabled: boolean
+  readonly minLexicalCoverage: number
   readonly embeddingDimensions: number
   readonly recencyHalfLifeDays: number
   readonly minScore: number
@@ -90,6 +96,8 @@ function resolveWeights(input: Partial<RetrievalWeights> | undefined): Retrieval
 
 function resolveConfig(config: MemoryRuntimeConfig): ResolvedConfig {
   return {
+    contentAwareRetrievalEnabled: config.contentAwareRetrievalEnabled ?? true,
+    minLexicalCoverage: Math.max(0, Math.min(1, config.minLexicalCoverage ?? 0.15)),
     embeddingDimensions: config.embeddingDimensions ?? 192,
     recencyHalfLifeDays: config.recencyHalfLifeDays ?? 30,
     minScore: config.minScore ?? 0.12,
@@ -209,23 +217,30 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     const limit = Math.max(0, Math.floor(input.limit ?? 8))
     const query = normalizeText(input.query)
     const traceId = `rt_${stableHash(`${input.sessionId}\u0000${startedAt}\u0000${query}`)}`
-    const queryEmbedding = hashedEmbedding(query, this.config.embeddingDimensions)
+    const aware = this.config.contentAwareRetrievalEnabled
+    const queryEmbedding = hashedEmbedding(aware ? retrievalView(query) : query, this.config.embeddingDimensions)
     const records = query.length === 0
       ? []
       : await this.store.listBySession(input.sessionId, this.config.maxCandidates)
 
-    const candidates: ScoredCandidate[] = records.map(memory => {
-      const embeddingScore = cosineSimilarity(queryEmbedding, memory.embedding)
-      const lexicalScore = lexicalSimilarity(query, memory.content)
+    const lexical = aware ? lexicalRanker(query, records.map(m => m.content)) : []
+    const candidates: ScoredCandidate[] = records.map((memory, index) => {
+      const kind = contentKind(memory.content)
+      const utility = aware ? utilityFactor(kind) : 1
+      const embeddingScore = cosineSimilarity(queryEmbedding, aware ? hashedEmbedding(retrievalView(memory.content), this.config.embeddingDimensions) : memory.embedding)
+      const lexicalScore = aware ? lexical[index]!.lexicalScore : lexicalSimilarity(query, memory.content)
       const similarityScore = 0.65 * embeddingScore + 0.35 * lexicalScore
       const temporal = recencyScore(memory.createdAt, now, this.config.recencyHalfLifeDays)
       const affect = emotionSimilarity(input.emotion, memory.emotion)
-      const finalScore = this.config.weights.similarity * similarityScore
+      const finalScore = (this.config.weights.similarity * similarityScore
         + this.config.weights.recency * temporal
         + this.config.weights.importance * memory.importance
-        + this.config.weights.emotion * affect
+        + this.config.weights.emotion * affect) * utility
       const rendered = formatMemory(memory, this.config.maxItemChars)
       return {
+        contentKind: kind,
+        utilityFactor: utility,
+        queryCoverage: aware ? lexical[index]!.queryCoverage : 1,
         memory,
         embeddingScore,
         lexicalScore,
@@ -244,6 +259,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     let associationEdgesRead = 0
     if (this.config.hebbianEnabled && this.store.listAssociations !== undefined && candidates.length > 0) {
       const seedIds = [...candidates]
+        .filter(candidate => !aware || (candidate.contentKind === 'statement' && candidate.queryCoverage >= this.config.minLexicalCoverage))
         .sort((left, right) => right.finalScore - left.finalScore || right.memory.createdAt - left.memory.createdAt)
         .slice(0, this.config.hebbianSeedLimit)
         .map(candidate => candidate.memory.id)
@@ -261,6 +277,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         const source = byId.get(edge.sourceMemoryId)
         const target = byId.get(edge.targetMemoryId)
         if (source === undefined || target === undefined) continue
+        if (aware && (source.contentKind !== 'statement' || target.contentKind !== 'statement'
+          || source.queryCoverage < this.config.minLexicalCoverage || target.queryCoverage < this.config.minLexicalCoverage)) continue
         const decayed = decayedAssociation(
           edge.weight,
           edge.updatedAt,
@@ -284,6 +302,10 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     let consumed = framingTokens
     const selected: ScoredCandidate[] = []
     for (const candidate of candidates) {
+      if (aware && (candidate.queryCoverage <= 0 || candidate.queryCoverage < this.config.minLexicalCoverage)) {
+        candidate.decision = 'below-min-relevance'
+        continue
+      }
       if (candidate.finalScore < this.config.minScore) {
         candidate.decision = 'below-min-score'
         continue
@@ -313,15 +335,16 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     }
     await this.store.touch(selected.map(item => item.memory.id), now)
     let reinforcedEdges = 0
+    const reinforcementItems = selected.filter(item => !aware || item.contentKind === 'statement')
     if (
       this.config.hebbianEnabled
-      && selected.length > 1
+      && reinforcementItems.length > 1
       && this.store.reinforceAssociations !== undefined
     ) {
       reinforcedEdges = await this.store.reinforceAssociations({
         sessionId: input.sessionId,
-        memoryIds: selected.map(item => item.memory.id),
-        activations: Object.fromEntries(selected.map(item => [item.memory.id, clamp01(item.finalScore)])),
+        memoryIds: reinforcementItems.map(item => item.memory.id),
+        activations: Object.fromEntries(reinforcementItems.map(item => [item.memory.id, clamp01(item.finalScore)])),
         at: now,
         learningRate: this.config.hebbianLearningRate,
         maxWeight: this.config.hebbianMaxWeight,
@@ -342,8 +365,12 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         finalScore: candidate.finalScore,
         estimatedTokens: candidate.estimatedTokens,
         decision: candidate.decision,
+        contentKind: candidate.contentKind,
+        utilityFactor: candidate.utilityFactor,
+        queryCoverage: candidate.queryCoverage,
       }))
     const trace: RetrievalTrace = {
+      scoringVersion: aware ? 'content-aware-v1' : 'raw-v0.2',
       traceId,
       sessionId: input.sessionId,
       queryFingerprint: stableHash(query),

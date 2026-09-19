@@ -1,8 +1,8 @@
 import { resolve } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
+import { BasicCompactionEngine, COMPACTION_BACKEND } from './compaction-backend.js'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -38,6 +38,8 @@ export const STABLE_MEMORY_POLICY = [
 ].join('\n')
 
 export interface Config {
+  contentAwareRetrievalEnabled?: boolean
+  minLexicalCoverage?: number
   databasePath?: string
   telemetryPath?: string
   telemetryEnabled?: boolean
@@ -70,6 +72,8 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
+  contentAwareRetrievalEnabled: z.boolean().default(true),
+  minLexicalCoverage: z.number().min(0).max(1).default(0.15),
   databasePath: z.string().default('.dsh-memory/memory.sqlite'),
   telemetryPath: z.string().default('.dsh-memory/telemetry.jsonl'),
   telemetryEnabled: z.boolean().default(true),
@@ -125,6 +129,8 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
 
   constructor(ctx: Context, config: Config = {}) {
     const resolved: Required<Config> = {
+      contentAwareRetrievalEnabled: config.contentAwareRetrievalEnabled ?? true,
+      minLexicalCoverage: config.minLexicalCoverage ?? 0.15,
       databasePath: config.databasePath ?? '.dsh-memory/memory.sqlite',
       telemetryPath: config.telemetryPath ?? '.dsh-memory/telemetry.jsonl',
       telemetryEnabled: config.telemetryEnabled ?? true,
@@ -164,8 +170,14 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
     })
     this.pluginConfig = resolved
     const databasePath = resolvedPath(resolved.databasePath)
-    this.store = new SqliteMemoryStore({ filename: databasePath })
+    this.store = new SqliteMemoryStore({
+      filename: databasePath,
+      // Quarantine historical injected records without deleting test evidence.
+      excludedSourceKinds: ['plugin', 'skill-catalog', 'agent-instructions'],
+    })
     const runtimeConfig: MemoryRuntimeConfig = {
+      contentAwareRetrievalEnabled: resolved.contentAwareRetrievalEnabled,
+      minLexicalCoverage: resolved.minLexicalCoverage,
       recencyHalfLifeDays: resolved.recencyHalfLifeDays,
       minScore: resolved.minRetrievalScore,
       maxCandidates: resolved.maxCandidates,
@@ -255,6 +267,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
         time: Date.now(),
         databasePath,
         apiBaseline: DSH_API_BASELINE,
+        compactionBackend: COMPACTION_BACKEND,
       })
       ctx.logger.info(`${PLUGIN_ID}: SQLite memory store ready at ${databasePath}`)
       return async () => {
@@ -333,6 +346,8 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
     agent: Agent,
     signal?: AbortSignal,
   ) {
+    signal?.throwIfAborted()
+    await this.pendingObservation
     signal?.throwIfAborted()
     const now = Date.now()
     const entries = input.messages

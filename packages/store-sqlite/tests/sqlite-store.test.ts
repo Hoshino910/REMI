@@ -9,6 +9,19 @@ afterEach(async () => {
 })
 
 describe('SqliteMemoryStore', () => {
+  it('quarantines historical injections before LIMIT without deleting records', async () => {
+    const store = new SqliteMemoryStore({ filename: ':memory:', excludedSourceKinds: ['plugin', 'skill-catalog', 'agent-instructions'] })
+    stores.push(store)
+    const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
+    for (const [seq, sourceKind] of ['user', 'plugin', 'skill-catalog', 'agent-instructions'].entries()) {
+      await runtime.ingest({ sessionId: 'legacy', sourceEventSeq: seq, role: 'user', sourceType: 'user/message', content: `fact ${sourceKind}`, timestamp: seq + 1, metadata: { sourceKind } })
+    }
+    const records = await store.listBySession('legacy', 1)
+    expect(records).toHaveLength(1)
+    expect(records[0]?.metadata.sourceKind).toBe('user')
+    expect((await runtime.retrieve({ sessionId: 'legacy', query: 'fact', tokenBudget: 500 })).trace.candidateCount).toBe(1)
+    expect((await store.stats()).memories).toBe(4)
+  })
   it('persists memories and retrieval traces', async () => {
     const store = new SqliteMemoryStore({ filename: ':memory:' })
     stores.push(store)

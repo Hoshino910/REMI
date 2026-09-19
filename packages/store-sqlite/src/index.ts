@@ -13,6 +13,8 @@ import type {
 
 export interface SqliteMemoryStoreConfig {
   readonly filename: string
+  /** Optional provenance quarantine; filtering happens before candidate LIMIT. */
+  readonly excludedSourceKinds?: readonly string[]
 }
 
 interface MemoryRow {
@@ -76,8 +78,10 @@ export class SqliteMemoryStore implements MemoryStore {
   readonly filename: string
   private readonly database: DatabaseSync
   private closed = false
+  private readonly excludedSourceKinds: readonly string[]
 
   constructor(config: SqliteMemoryStoreConfig) {
+    this.excludedSourceKinds = [...new Set(config.excludedSourceKinds ?? [])]
     if (config.filename.length === 0) throw new Error('SQLite filename cannot be empty')
     this.filename = config.filename === ':memory:' ? config.filename : resolve(config.filename)
     if (this.filename !== ':memory:') mkdirSync(dirname(this.filename), { recursive: true })
@@ -190,15 +194,18 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async listBySession(sessionId: string, limit: number): Promise<readonly MemoryRecord[]> {
     this.assertOpen()
+    const quarantine = this.excludedSourceKinds.length === 0 ? ''
+      : `AND COALESCE(json_extract(metadata_json, '$.sourceKind'), '') NOT IN (${this.excludedSourceKinds.map(() => '?').join(',')})`
     const rows = this.database.prepare(`
       SELECT id, session_id, source_event_seq, role, source_type, content,
         content_hash, embedding, importance, emotion_json, created_at, last_accessed_at,
         access_count, estimated_tokens, metadata_json
       FROM memories
       WHERE session_id = ?
+        ${quarantine}
       ORDER BY created_at DESC
       LIMIT ?
-    `).all(sessionId, Math.max(0, Math.floor(limit))) as unknown as MemoryRow[]
+    `).all(sessionId, ...this.excludedSourceKinds, Math.max(0, Math.floor(limit))) as unknown as MemoryRow[]
     return rows.map(rowToRecord)
   }
 

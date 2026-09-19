@@ -43,7 +43,7 @@ export interface MemoryRecord {
   readonly metadata: Readonly<Record<string, string | number | boolean | null>>
 }
 
-export type CandidateDecision = 'selected' | 'below-min-score' | 'budget' | 'limit'
+export type CandidateDecision = 'selected' | 'below-min-score' | 'below-min-relevance' | 'budget' | 'limit'
 
 export interface RetrievalCandidateTrace {
   readonly memoryId: string
@@ -57,9 +57,13 @@ export interface RetrievalCandidateTrace {
   readonly finalScore: number
   readonly estimatedTokens: number
   readonly decision: CandidateDecision
+  readonly contentKind?: 'statement' | 'question' | 'acknowledgement'
+  readonly utilityFactor?: number
+  readonly queryCoverage?: number
 }
 
 export interface RetrievalTrace {
+  readonly scoringVersion?: 'raw-v0.2' | 'content-aware-v1'
   readonly traceId: string
   readonly sessionId: string
   readonly queryFingerprint: string
@@ -128,6 +132,8 @@ export interface AssociationReinforcement {
 }
 
 export interface MemoryRuntimeConfig {
+  readonly contentAwareRetrievalEnabled?: boolean
+  readonly minLexicalCoverage?: number
   readonly embeddingDimensions?: number
   readonly recencyHalfLifeDays?: number
   readonly minScore?: number

@@ -8,6 +8,7 @@ export type TelemetryEvent =
     readonly time: number
     readonly databasePath: string
     readonly apiBaseline: string
+    readonly compactionBackend?: string
   }
   | {
     readonly type: 'memory/ingested'

@@ -1,6 +1,6 @@
 # REMI
 
-> Adaptive Memory for AI · DeepSeek Harness plugin · v0.2.0
+> Adaptive Memory for AI · DeepSeek Harness plugin · v0.2.1
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -10,16 +10,27 @@ REMI is not a standalone web application, does not replace the Harness Agent Loo
 
 > **Status:** Experimental. Do not use REMI in production environments yet.
 
+See [CHANGELOG.md](CHANGELOG.md) for the v0.2.1 changes and [the validation note](docs/V0.2.1_VALIDATION.md) for evidence and limitations.
+
 ## Features
 
 - Observes `user/message`, `assistant/message`, and `tool/result` through `session/event`.
 - Stores memories, affect hints, retrieval traces, and association edges with the built-in Node.js `node:sqlite` module.
 - Captures the current query at `agent/inbox/claimed` and injects one bounded runtime-context snapshot through `system-prompt/assemble`.
 - Ranks candidates with hashed bag-of-tokens cosine, lexical Jaccard, recency, importance, association, and affect signals.
+- Content-aware ranking removes common recall/output boilerplate from a scoring-only view, uses corpus-IDF weighted lexical evidence, and downweights questions/acknowledgements. Original memory text is preserved; no model is trained.
 - Reinforces bounded Hebbian edges between memories selected in the same retrieval window.
 - Optionally requests structured affect JSON through DSH `ctx.llm.stream()`; no model training is involved, and failures fall back to a local heuristic.
 - Extends the official `BasicCompactionEngine`, preserving the Harness compaction transaction while replacing only the checkpoint summarizer.
+- File-loaded Desktop builds resolve the compaction engine from the running Desktop host, avoiding development-peer surface-format mismatches.
+- Excludes plugin injections, skill catalogs, and agent instructions from memory and summaries. Historical injected records remain stored for audit but are quarantined from retrieval; clean official continuity checkpoints may still be re-summarized.
 - Emits JSONL telemetry without raw query text and stores complete `RetrievalTrace` records in SQLite.
+
+### Retrieval ranking controls
+
+`contentAwareRetrievalEnabled` defaults to `true`; set it to `false` for the original `raw-v0.2` scoring ablation. `minLexicalCoverage` defaults to `0.15` and prevents recency, importance, affect or hash collisions alone from admitting unrelated candidates. Questions remain available as lower-utility background, but are not Hebbian seeds or reinforcement targets in content-aware mode. Statement classification is a bilingual heuristic, not verification that a claim is true; similar entities and paraphrases still require validation.
+
+Traces include `scoringVersion`, `contentKind`, `utilityFactor`, and `queryCoverage`. Content-aware embeddings are recomputed from the scoring view, so existing raw embeddings and records require no destructive migration. The same scoring version is included in benchmark runs; do not compare reports from different versions without labeling them.
 
 ## Requirements
 

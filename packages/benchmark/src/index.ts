@@ -18,6 +18,7 @@ export interface BenchmarkCase {
 }
 
 export interface BenchmarkRun {
+  readonly scoringVersion: 'raw-v0.2' | 'content-aware-v1'
   readonly ablation: string
   readonly cases: number
   readonly hitRateAtK: number
@@ -100,6 +101,7 @@ async function runAblation(
   }
 
   return {
+    scoringVersion: ablation.config.contentAwareRetrievalEnabled === false ? 'raw-v0.2' : 'content-aware-v1',
     ablation: ablation.name,
     cases: cases.length,
     hitRateAtK: mean(hits),
