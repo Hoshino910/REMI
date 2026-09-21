@@ -1,0 +1,45 @@
+{
+  "protocolVersion": "current-truth-v1",
+  "outputSchema": {
+    "current": ["entity", "field", "value"],
+    "history": ["entity", "field", "history"]
+  },
+  "cases": [
+    {
+      "id": "single-correction",
+      "messages": ["Cedar service port is 6389.", "Change Cedar service port to 8247; use the new port from now on."],
+      "query": "What is the current Cedar service port?",
+      "expected": { "entity": "Cedar service", "field": "port", "value": "8247" }
+    },
+    {
+      "id": "history-request",
+      "messages": ["Cedar service port is 6389.", "Change Cedar service port to 8247; use the new port from now on."],
+      "query": "What was the original Cedar service port and what is it now?",
+      "expectedHistory": ["6389", "8247"]
+    },
+    {
+      "id": "multiple-corrections",
+      "messages": ["Cedar service port is 6389.", "Change Cedar service port to 8247.", "Replace the Cedar service port with 9361."],
+      "query": "What is the current Cedar service port?",
+      "expected": { "entity": "Cedar service", "field": "port", "value": "9361" }
+    },
+    {
+      "id": "similar-entity-isolation",
+      "messages": ["Cedar service port is 6389.", "Maple service port is 6389.", "Change Cedar service port to 8247."],
+      "query": "What is the current Maple service port?",
+      "expected": { "entity": "Maple service", "field": "port", "value": "6389" }
+    },
+    {
+      "id": "ambiguous-future-intent",
+      "messages": ["Cedar service port is 6389.", "We may change the Cedar service port later."],
+      "query": "What is the current Cedar service port?",
+      "expected": { "entity": "Cedar service", "field": "port", "value": "6389" }
+    },
+    {
+      "id": "unknown-entity",
+      "messages": ["Cedar service port is 6389."],
+      "query": "What is the current Birch service port?",
+      "expectedUnknown": true
+    }
+  ]
+}

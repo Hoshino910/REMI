@@ -201,6 +201,13 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       embedding: hashedEmbedding(content, this.config.embeddingDimensions),
       importance: clamp01(input.importance ?? inferredImportance(input)),
       emotion: input.emotion ?? inferHeuristicEmotion(content),
+      status: input.status ?? 'active',
+      ...(input.supersedesMemoryId === undefined ? {} : { supersedesMemoryId: input.supersedesMemoryId }),
+      ...(input.supersededByMemoryId === undefined ? {} : { supersededByMemoryId: input.supersededByMemoryId }),
+      validFrom: input.validFrom ?? input.timestamp,
+      ...(input.validUntil === undefined ? {} : { validUntil: input.validUntil }),
+      ...(input.revisionReason === undefined ? {} : { revisionReason: input.revisionReason }),
+      ...(input.revisionSource === undefined ? {} : { revisionSource: input.revisionSource }),
       createdAt: input.timestamp,
       lastAccessedAt: input.timestamp,
       accessCount: 0,
@@ -221,7 +228,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     const queryEmbedding = hashedEmbedding(aware ? retrievalView(query) : query, this.config.embeddingDimensions)
     const records = query.length === 0
       ? []
-      : await this.store.listBySession(input.sessionId, this.config.maxCandidates)
+      : await this.store.listBySession(input.sessionId, this.config.maxCandidates, { includeInactive: true })
 
     const lexical = aware ? lexicalRanker(query, records.map(m => m.content)) : []
     const candidates: ScoredCandidate[] = records.map((memory, index) => {
@@ -252,13 +259,14 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         finalScore,
         rendered,
         estimatedTokens: estimateTokens(rendered),
-        decision: 'budget' as CandidateDecision,
+        decision: (memory.status === 'active' ? 'budget' : memory.status) as CandidateDecision,
       }
     })
 
     let associationEdgesRead = 0
     if (this.config.hebbianEnabled && this.store.listAssociations !== undefined && candidates.length > 0) {
       const seedIds = [...candidates]
+        .filter(candidate => candidate.memory.status === 'active')
         .filter(candidate => !aware || (candidate.contentKind === 'statement' && candidate.queryCoverage >= this.config.minLexicalCoverage))
         .sort((left, right) => right.finalScore - left.finalScore || right.memory.createdAt - left.memory.createdAt)
         .slice(0, this.config.hebbianSeedLimit)
@@ -277,6 +285,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         const source = byId.get(edge.sourceMemoryId)
         const target = byId.get(edge.targetMemoryId)
         if (source === undefined || target === undefined) continue
+        if (source.memory.status !== 'active' || target.memory.status !== 'active') continue
         if (aware && (source.contentKind !== 'statement' || target.contentKind !== 'statement'
           || source.queryCoverage < this.config.minLexicalCoverage || target.queryCoverage < this.config.minLexicalCoverage)) continue
         const decayed = decayedAssociation(
@@ -302,6 +311,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     let consumed = framingTokens
     const selected: ScoredCandidate[] = []
     for (const candidate of candidates) {
+      if (candidate.memory.status !== 'active') continue
       if (aware && (candidate.queryCoverage <= 0 || candidate.queryCoverage < this.config.minLexicalCoverage)) {
         candidate.decision = 'below-min-relevance'
         continue
@@ -368,6 +378,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         contentKind: candidate.contentKind,
         utilityFactor: candidate.utilityFactor,
         queryCoverage: candidate.queryCoverage,
+        lifecycleStatus: candidate.memory.status,
+        ...(candidate.memory.supersededByMemoryId === undefined ? {} : { supersededByMemoryId: candidate.memory.supersededByMemoryId }),
       }))
     const trace: RetrievalTrace = {
       scoringVersion: aware ? 'content-aware-v1' : 'raw-v0.2',

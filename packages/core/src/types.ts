@@ -1,4 +1,6 @@
 export type MemoryRole = 'user' | 'assistant' | 'tool' | 'unknown'
+export type MemoryLifecycleStatus = 'active' | 'superseded' | 'excluded' | 'deleted'
+export type MemoryRevisionSource = 'deterministic' | 'model' | 'manual' | 'migration'
 
 export interface EmotionVector {
   /** Pleasantness in [-1, 1]. */
@@ -22,6 +24,13 @@ export interface MemoryInput {
   readonly timestamp: number
   readonly importance?: number
   readonly emotion?: EmotionVector
+  readonly status?: MemoryLifecycleStatus
+  readonly supersedesMemoryId?: string
+  readonly supersededByMemoryId?: string
+  readonly validFrom?: number
+  readonly validUntil?: number
+  readonly revisionReason?: string
+  readonly revisionSource?: MemoryRevisionSource
   readonly metadata?: Readonly<Record<string, string | number | boolean | null>>
 }
 
@@ -36,6 +45,13 @@ export interface MemoryRecord {
   readonly embedding: readonly number[]
   readonly importance: number
   readonly emotion?: EmotionVector
+  readonly status: MemoryLifecycleStatus
+  readonly supersedesMemoryId?: string
+  readonly supersededByMemoryId?: string
+  readonly validFrom: number
+  readonly validUntil?: number
+  readonly revisionReason?: string
+  readonly revisionSource?: MemoryRevisionSource
   readonly createdAt: number
   readonly lastAccessedAt: number
   readonly accessCount: number
@@ -44,6 +60,7 @@ export interface MemoryRecord {
 }
 
 export type CandidateDecision = 'selected' | 'below-min-score' | 'below-min-relevance' | 'budget' | 'limit'
+  | 'superseded' | 'excluded' | 'deleted'
 
 export interface RetrievalCandidateTrace {
   readonly memoryId: string
@@ -60,6 +77,8 @@ export interface RetrievalCandidateTrace {
   readonly contentKind?: 'statement' | 'question' | 'acknowledgement'
   readonly utilityFactor?: number
   readonly queryCoverage?: number
+  readonly lifecycleStatus?: MemoryLifecycleStatus
+  readonly supersededByMemoryId?: string
 }
 
 export interface RetrievalTrace {
@@ -190,7 +209,7 @@ export interface StoreStats {
 
 export interface MemoryStore {
   put(record: MemoryRecord): Promise<boolean>
-  listBySession(sessionId: string, limit: number): Promise<readonly MemoryRecord[]>
+  listBySession(sessionId: string, limit: number, options?: MemoryListOptions): Promise<readonly MemoryRecord[]>
   touch(ids: readonly string[], at: number): Promise<void>
   appendTrace(trace: RetrievalTrace): Promise<void>
   listAssociations?(
@@ -201,6 +220,11 @@ export interface MemoryStore {
   reinforceAssociations?(input: AssociationReinforcement): Promise<number>
   stats(): Promise<StoreStats>
   close(): Promise<void>
+}
+
+export interface MemoryListOptions {
+  /** Include lifecycle-inactive records for audit traces. Active records sort first. */
+  readonly includeInactive?: boolean
 }
 
 export interface MemoryRuntime {

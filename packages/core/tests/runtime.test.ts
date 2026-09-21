@@ -7,6 +7,7 @@ import {
   type MemoryRecord,
   type MemoryStore,
   type RetrievalTrace,
+  stableHash,
 } from '../src/index.js'
 
 class TestStore implements MemoryStore {
@@ -106,6 +107,32 @@ describe('SelectiveMemoryRuntime', () => {
     }
     const result = await runtime.retrieve({ sessionId: 'question-graph', query: 'Cedar database port', tokenBudget: 800, limit: 2, now: 10 })
     expect(result.memories).toHaveLength(2)
+    expect(result.trace.reinforcedEdges).toBe(0)
+  })
+
+  it('retrieves only active current truth while retaining lifecycle exclusions in the trace', async () => {
+    const store = new TestStore()
+    const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
+    const sessionId = 'current-truth'
+    const replacementId = `m_${stableHash(`${sessionId}\u00002`)}`
+    await runtime.ingest({
+      sessionId, sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
+      content: 'The Cedar service port is 6389.', timestamp: 1,
+      status: 'superseded', supersededByMemoryId: replacementId, validUntil: 2,
+      revisionReason: 'User changed the port.', revisionSource: 'deterministic',
+    })
+    await runtime.ingest({
+      sessionId, sourceEventSeq: 2, role: 'user', sourceType: 'user/message',
+      content: 'The Cedar service port is 8247.', timestamp: 2,
+      supersedesMemoryId: `m_${stableHash(`${sessionId}\u00001`)}`,
+      revisionReason: 'User changed the port.', revisionSource: 'deterministic',
+    })
+
+    const result = await runtime.retrieve({ sessionId, query: 'Cedar service port', tokenBudget: 400, limit: 2, now: 3 })
+    expect(result.memories.map(item => item.memory.content)).toEqual(['The Cedar service port is 8247.'])
+    expect(result.trace.candidates.find(item => item.memoryId !== replacementId)).toMatchObject({
+      decision: 'superseded', lifecycleStatus: 'superseded', supersededByMemoryId: replacementId,
+    })
     expect(result.trace.reinforcedEdges).toBe(0)
   })
 

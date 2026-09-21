@@ -5,6 +5,9 @@ import type {
   AssociationEdge,
   AssociationReinforcement,
   MemoryRecord,
+  MemoryLifecycleStatus,
+  MemoryListOptions,
+  MemoryRevisionSource,
   MemoryRole,
   MemoryStore,
   RetrievalTrace,
@@ -28,6 +31,13 @@ interface MemoryRow {
   embedding: Uint8Array
   importance: number
   emotion_json: string | null
+  status: string
+  supersedes_memory_id: string | null
+  superseded_by_memory_id: string | null
+  valid_from: number
+  valid_until: number | null
+  revision_reason: string | null
+  revision_source: string | null
   created_at: number
   last_accessed_at: number
   access_count: number
@@ -66,6 +76,13 @@ function rowToRecord(row: MemoryRow): MemoryRecord {
     ...(row.emotion_json === null
       ? {}
       : { emotion: JSON.parse(row.emotion_json) as NonNullable<MemoryRecord['emotion']> }),
+    status: row.status as MemoryLifecycleStatus,
+    ...(row.supersedes_memory_id === null ? {} : { supersedesMemoryId: row.supersedes_memory_id }),
+    ...(row.superseded_by_memory_id === null ? {} : { supersededByMemoryId: row.superseded_by_memory_id }),
+    validFrom: row.valid_from,
+    ...(row.valid_until === null ? {} : { validUntil: row.valid_until }),
+    ...(row.revision_reason === null ? {} : { revisionReason: row.revision_reason }),
+    ...(row.revision_source === null ? {} : { revisionSource: row.revision_source as MemoryRevisionSource }),
     createdAt: row.created_at,
     lastAccessedAt: row.last_accessed_at,
     accessCount: row.access_count,
@@ -99,7 +116,7 @@ export class SqliteMemoryStore implements MemoryStore {
         value TEXT NOT NULL
       ) STRICT;
 
-      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '2')
+      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '3')
       ON CONFLICT(key) DO NOTHING;
 
       CREATE TABLE IF NOT EXISTS memories (
@@ -113,6 +130,13 @@ export class SqliteMemoryStore implements MemoryStore {
         embedding BLOB NOT NULL,
         importance REAL NOT NULL CHECK (importance >= 0 AND importance <= 1),
         emotion_json TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'superseded', 'excluded', 'deleted')),
+        supersedes_memory_id TEXT,
+        superseded_by_memory_id TEXT,
+        valid_from INTEGER NOT NULL DEFAULT 0,
+        valid_until INTEGER,
+        revision_reason TEXT,
+        revision_source TEXT,
         created_at INTEGER NOT NULL,
         last_accessed_at INTEGER NOT NULL,
         access_count INTEGER NOT NULL DEFAULT 0,
@@ -125,7 +149,6 @@ export class SqliteMemoryStore implements MemoryStore {
         WHERE source_event_seq IS NOT NULL;
       CREATE INDEX IF NOT EXISTS memories_session_created
         ON memories(session_id, created_at DESC);
-
       CREATE TABLE IF NOT EXISTS retrieval_traces (
         trace_id TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -157,8 +180,25 @@ export class SqliteMemoryStore implements MemoryStore {
     if (!columns.some(column => column.name === 'emotion_json')) {
       this.database.exec('ALTER TABLE memories ADD COLUMN emotion_json TEXT')
     }
+    const lifecycleColumns: ReadonlyArray<readonly [string, string]> = [
+      ['status', "TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'superseded', 'excluded', 'deleted'))"],
+      ['supersedes_memory_id', 'TEXT'],
+      ['superseded_by_memory_id', 'TEXT'],
+      ['valid_from', 'INTEGER NOT NULL DEFAULT 0'],
+      ['valid_until', 'INTEGER'],
+      ['revision_reason', 'TEXT'],
+      ['revision_source', 'TEXT'],
+    ]
+    for (const [name, declaration] of lifecycleColumns) {
+      if (!columns.some(column => column.name === name)) this.database.exec(`ALTER TABLE memories ADD COLUMN ${name} ${declaration}`)
+    }
+    this.database.exec(`
+      UPDATE memories SET valid_from = created_at WHERE valid_from = 0;
+      CREATE INDEX IF NOT EXISTS memories_session_status_created
+        ON memories(session_id, status, created_at DESC);
+    `)
     this.database.prepare(`
-      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '2')
+      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '3')
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run()
   }
@@ -168,9 +208,10 @@ export class SqliteMemoryStore implements MemoryStore {
     const result = this.database.prepare(`
       INSERT INTO memories (
         id, session_id, source_event_seq, role, source_type, content, content_hash,
-        embedding, importance, emotion_json, created_at, last_accessed_at, access_count,
-        estimated_tokens, metadata_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        embedding, importance, emotion_json, status, supersedes_memory_id,
+        superseded_by_memory_id, valid_from, valid_until, revision_reason, revision_source,
+        created_at, last_accessed_at, access_count, estimated_tokens, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT DO NOTHING
     `).run(
       record.id,
@@ -183,6 +224,13 @@ export class SqliteMemoryStore implements MemoryStore {
       encodeEmbedding(record.embedding),
       record.importance,
       record.emotion === undefined ? null : JSON.stringify(record.emotion),
+      record.status,
+      record.supersedesMemoryId ?? null,
+      record.supersededByMemoryId ?? null,
+      record.validFrom,
+      record.validUntil ?? null,
+      record.revisionReason ?? null,
+      record.revisionSource ?? null,
       record.createdAt,
       record.lastAccessedAt,
       record.accessCount,
@@ -192,18 +240,21 @@ export class SqliteMemoryStore implements MemoryStore {
     return result.changes > 0
   }
 
-  async listBySession(sessionId: string, limit: number): Promise<readonly MemoryRecord[]> {
+  async listBySession(sessionId: string, limit: number, options: MemoryListOptions = {}): Promise<readonly MemoryRecord[]> {
     this.assertOpen()
     const quarantine = this.excludedSourceKinds.length === 0 ? ''
       : `AND COALESCE(json_extract(metadata_json, '$.sourceKind'), '') NOT IN (${this.excludedSourceKinds.map(() => '?').join(',')})`
+    const lifecycle = options.includeInactive === true ? '' : "AND status = 'active'"
     const rows = this.database.prepare(`
       SELECT id, session_id, source_event_seq, role, source_type, content,
-        content_hash, embedding, importance, emotion_json, created_at, last_accessed_at,
-        access_count, estimated_tokens, metadata_json
+        content_hash, embedding, importance, emotion_json, status, supersedes_memory_id,
+        superseded_by_memory_id, valid_from, valid_until, revision_reason, revision_source,
+        created_at, last_accessed_at, access_count, estimated_tokens, metadata_json
       FROM memories
       WHERE session_id = ?
         ${quarantine}
-      ORDER BY created_at DESC
+        ${lifecycle}
+      ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, created_at DESC
       LIMIT ?
     `).all(sessionId, ...this.excludedSourceKinds, Math.max(0, Math.floor(limit))) as unknown as MemoryRow[]
     return rows.map(rowToRecord)
