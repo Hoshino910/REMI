@@ -80,7 +80,9 @@ export function resolveDeterministicCorrectionTarget(
   const subject = normalizeText(intent.subject).toLocaleLowerCase()
   const previous = intent.previousValue?.toLocaleLowerCase()
   const candidates = records
-    .filter(record => record.status === 'active')
+    // A user correction owns the lifecycle of prior user-supplied facts.
+    // Assistant echoes must not create a second mutation target.
+    .filter(record => record.status === 'active' && record.role === 'user')
     .map(record => {
       const content = normalizeText(record.content).toLocaleLowerCase()
       const exactSubject = content.includes(subject)

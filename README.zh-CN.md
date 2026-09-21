@@ -1,6 +1,6 @@
 # REMI
 
-> Adaptive Memory for AI · DeepSeek Harness 插件 · v0.2.1
+> Adaptive Memory for AI · DeepSeek Harness 插件 · v0.3.0-alpha.1 开发版
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -10,7 +10,7 @@ REMI 不是独立 Web 应用，不替换 Harness Agent Loop，也不训练或微
 
 > **当前状态：**早期测试版本，请勿用于生产环境。
 
-v0.2.1 的改动见 [CHANGELOG.md](CHANGELOG.md)，测试证据和边界见 [验证说明](docs/V0.2.1_VALIDATION.md)。
+版本改动见 [CHANGELOG.md](CHANGELOG.md)。v0.2.1 的证据仍保存在[验证说明](docs/V0.2.1_VALIDATION.md)；v0.3 current-truth 链路在完成[隔离 DSH 测试](docs/V0.3_CURRENT_TRUTH_TEST.md)前不视为已经过在线验证。
 
 ## 功能
 
@@ -25,6 +25,7 @@ v0.2.1 的改动见 [CHANGELOG.md](CHANGELOG.md)，测试证据和边界见 [验
 - 桌面版通过文件加载时，使用当前 DSH 宿主自带的压缩引擎，避免与工作区开发依赖的 surface 格式混用。
 - 插件注入、技能目录和 Agent 指令不进入记忆或摘要；历史注入记录保留用于审计，但会被检索隔离。干净的官方连续性 checkpoint 仍可参与再次压缩。
 - 输出不包含原始 query 的 JSONL telemetry，并在 SQLite 中保存完整 `RetrievalTrace`。
+- 可选识别范围严格受限的中英文明确更正，并以单个 SQLite 事务把唯一匹配的旧事实标记为 superseded。当前事实查询排除旧版本，明确的历史查询可包含旧版本。
 
 ### 检索排序配置
 
@@ -74,6 +75,7 @@ packages/dsh-adapter/dist/index.js
     telemetryPath: 'C:/path/to/dsh-data/remi-telemetry.jsonl'
     telemetryEnabled: true
     transparentWindowEnabled: true
+    currentTruthEnabled: false
     retrievalTokenBudget: 1400
     retrievalLimit: 8
     minRetrievalScore: 0.12
@@ -130,6 +132,16 @@ SQLite 数据库包含原始会话文本，应至少使用与 Harness session st
 | `emotionWeight` | `0.05` | affect 接近度权重 |
 
 所有权重会在运行时归一化。`retrievalTokenBudget` 只约束 REMI 渲染的 `<memory-context>`，不是整个模型请求的硬上限。
+
+### 当前事实生命周期（实验功能）
+
+| 配置项 | 默认值 | 说明 |
+|---|---:|---|
+| `currentTruthEnabled` | `false` | 启用确定性更正识别与原子事实替换 |
+
+Alpha 版本只接受明确形式，例如 `Change the Cedar service port from 6389 to 8247` 或 `将 Cedar 服务端口从 6389 改为 8247`。subject 和可选旧值必须唯一定位一条 active 记忆。如果找不到目标、存在多个匹配，或消息包含 `may`、`might`、`可能`、`考虑` 等条件表达，REMI 只按普通事件写入，不修改任何旧记录。
+
+Superseded 记录仍保存在 SQLite 中用于审计。普通检索和 Hebbian 强化会排除它们；只有明确询问历史时才允许返回。该解析器是保守的生命周期控制，不是通用事实抽取或真伪判断模型。
 
 ### Hebbian 关联图
 
@@ -196,7 +208,7 @@ flowchart TD
 
 ### 事件观察
 
-Observer 将用户、助手和工具结果中的文本转换为 `MemoryRecord`。REMI 自己生成的消息和 compaction checkpoint 会被忽略，避免形成反馈循环。`(session_id, source_event_seq)` 用于保证同一事件重放时的幂等性。
+Observer 将用户、助手和工具结果中的文本转换为 `MemoryRecord`。启用 current-truth 后，明确的用户更正会先经过确定性 resolver；唯一匹配时在同一个 SQLite 事务内完成替换。REMI 自己生成的消息和 compaction checkpoint 会被忽略，避免形成反馈循环。`(session_id, source_event_seq)` 用于保证同一事件重放时的幂等性。
 
 REMI 只观察安装后的 live event，不会自动回填更早的 session 历史。
 
@@ -233,14 +245,14 @@ REMI 在 `agent/inbox/claimed` 中捕获当前直接用户查询，然后在协�
 
 ## SQLite schema
 
-Schema v2 包含：
+Schema v3 包含：
 
-- `memories`：文本、hashed embedding、importance、affect、访问计数和来源元数据；
+- `memories`：文本、hashed embedding、importance、affect、访问计数、来源元数据、生命周期状态、有效期和 supersession 链接；
 - `retrieval_traces`：完整的评分和选择 trace；
 - `memory_associations`：session 内规范化的共激活边；
 - `schema_meta`：schema 版本。
 
-打开 v1 数据库时，store 会添加 `emotion_json`、创建关联表和索引，并更新 schema version。
+打开旧数据库时会执行增量迁移。v3 添加生命周期字段，并把已有记录初始化为 active；迁移不会删除旧数据。
 
 ## Telemetry 与 RetrievalTrace
 
@@ -248,6 +260,7 @@ JSONL 事件类型：
 
 - `plugin/started`
 - `memory/ingested`
+- `memory/correction`
 - `memory/retrieval`
 - `memory/window`
 - `memory/emotion-analysis`
@@ -300,7 +313,7 @@ pnpm benchmark
 
 当前验证结果：
 
-- 6 个测试文件、14 项测试通过；
+- v0.3 alpha 开发分支的 9 个测试文件、48 项测试通过；
 - 所有 workspace package 均可 build 并通过 typecheck；
 - DSH Desktop 2.0.6 隔离 headless smoke test 返回 `REMI_LIVE_OK`；
 - smoke test 的记忆窗口使用 470 / 600 estimated tokens；
@@ -313,7 +326,8 @@ DSH smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.str
 - 不自动回填插件安装前创建的 session。
 - 不默认提供跨 session 检索作用域。
 - Hashed embedding 是占位实现，跨语言和同义表达召回能力有限。
-- 尚未实现 current-truth/superseded 冲突消解或删除 API。
+- Current-truth 目前只处理明确的确定性形式，并要求 subject/旧值证据唯一；尚无模型 resolver、合并 UI 或删除 API。
+- v0.3 current-truth 链路已通过离线测试，但发布前仍需在全新数据库上完成 DSH 生命周期、重启持久化和压缩后验证。
 - Hebbian 边表达检索共现，不代表事实或因果。
 - Affect 提示没有跨语言校准、时间平滑或诊断能力。
 - Extractive compaction 结果稳定，但可能遗漏隐含决策或保留过时文字。

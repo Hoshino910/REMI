@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.3.0-alpha.1 - Unreleased
+
+### Added
+
+- Added memory lifecycle states and additive SQLite schema v3 migration.
+- Added atomic active-to-superseded replacement with replay-safe linkage and validity metadata.
+- Added conservative deterministic Chinese/English correction detection behind `currentTruthEnabled` (default `false`).
+- Added current/history retrieval behavior and `memory/correction` telemetry without raw fact values.
+- Added a frozen current-truth fixture and regression tests for ambiguity, rollback, history access, and inactive-memory graph isolation.
+
+### Validation
+
+- Build and typecheck pass; 9 test files and 48 tests pass locally.
+- Clean-database DSH lifecycle, restart persistence, and post-compaction validation remain required before prerelease publication.
+
 ## v0.2.1 - 2026-09-19
 
 ### Changed

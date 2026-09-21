@@ -11,10 +11,14 @@ describe('DSH current-truth observation', () => {
       sessionId: 's1', sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
       content: 'The Cedar service port is 6389.', timestamp: 1,
     })
+    await runtime.ingest({
+      sessionId: 's1', sourceEventSeq: 2, role: 'assistant', sourceType: 'assistant/message',
+      content: 'Acknowledged: the Cedar service port is 6389.', timestamp: 2,
+    })
 
     const result = await ingestWithCurrentTruth(runtime, store, {
-      sessionId: 's1', sourceEventSeq: 2, role: 'user', sourceType: 'user/message',
-      content: 'Change the Cedar service port from 6389 to 8247.', timestamp: 2,
+      sessionId: 's1', sourceEventSeq: 3, role: 'user', sourceType: 'user/message',
+      content: 'Change the Cedar service port from 6389 to 8247.', timestamp: 3,
     }, { enabled: true, maxCandidates: 100 })
 
     expect(result).toMatchObject({
@@ -22,11 +26,11 @@ describe('DSH current-truth observation', () => {
       correction: { resolution: 'resolved', pattern: 'en-change', candidateCount: 1 },
     })
     const records = await store.listBySession('s1', 10, { includeInactive: true })
-    expect(records).toHaveLength(2)
+    expect(records).toHaveLength(3)
     expect(records.find(record => record.status === 'active')?.content).toContain('8247')
     expect(records.find(record => record.status === 'superseded')).toMatchObject({
       content: 'The Cedar service port is 6389.',
-      validUntil: 2,
+      validUntil: 3,
       revisionSource: 'deterministic',
     })
     await store.close()

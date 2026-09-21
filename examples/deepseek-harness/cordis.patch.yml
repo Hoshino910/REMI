@@ -14,6 +14,7 @@
         retrievalTokenBudget: 1400
         retrievalLimit: 8
         transparentWindowEnabled: true
+        currentTruthEnabled: false
         similarityWeight: 0.55
         recencyWeight: 0.15
         importanceWeight: 0.10
