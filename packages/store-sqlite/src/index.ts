@@ -8,6 +8,7 @@ import type {
   MemoryLifecycleStatus,
   MemoryListOptions,
   MemoryRevisionSource,
+  MemorySupersession,
   MemoryRole,
   MemoryStore,
   RetrievalTrace,
@@ -203,8 +204,7 @@ export class SqliteMemoryStore implements MemoryStore {
     `).run()
   }
 
-  async put(record: MemoryRecord): Promise<boolean> {
-    this.assertOpen()
+  private insertRecord(record: MemoryRecord): boolean {
     const result = this.database.prepare(`
       INSERT INTO memories (
         id, session_id, source_event_seq, role, source_type, content, content_hash,
@@ -238,6 +238,56 @@ export class SqliteMemoryStore implements MemoryStore {
       JSON.stringify(record.metadata),
     )
     return result.changes > 0
+  }
+
+  async put(record: MemoryRecord): Promise<boolean> {
+    this.assertOpen()
+    return this.insertRecord(record)
+  }
+
+  async supersede(input: MemorySupersession): Promise<boolean> {
+    this.assertOpen()
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const target = this.database.prepare(`
+        SELECT session_id, status, superseded_by_memory_id
+        FROM memories WHERE id = ?
+      `).get(input.targetMemoryId) as {
+        session_id: string
+        status: MemoryLifecycleStatus
+        superseded_by_memory_id: string | null
+      } | undefined
+      if (target === undefined || target.session_id !== input.sessionId) {
+        throw new Error('Supersession target does not exist in the requested session')
+      }
+      if (target.status === 'superseded' && target.superseded_by_memory_id === input.replacement.id) {
+        this.database.exec('COMMIT')
+        return false
+      }
+      if (target.status !== 'active') throw new Error(`Cannot supersede a ${target.status} memory`)
+      if (input.replacement.sessionId !== input.sessionId
+        || input.replacement.status !== 'active'
+        || input.replacement.supersedesMemoryId !== input.targetMemoryId) {
+        throw new Error('Replacement lifecycle linkage is invalid')
+      }
+      const inserted = this.insertRecord(input.replacement)
+      if (!inserted) throw new Error('Replacement memory conflicts with an existing record')
+      const result = this.database.prepare(`
+        UPDATE memories
+        SET status = 'superseded', superseded_by_memory_id = ?, valid_until = ?,
+          revision_reason = ?, revision_source = ?
+        WHERE id = ? AND session_id = ? AND status = 'active'
+      `).run(
+        input.replacement.id, input.at, input.reason, input.source,
+        input.targetMemoryId, input.sessionId,
+      )
+      if (result.changes !== 1) throw new Error('Supersession target changed concurrently')
+      this.database.exec('COMMIT')
+      return true
+    } catch (error: unknown) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
   }
 
   async listBySession(sessionId: string, limit: number, options: MemoryListOptions = {}): Promise<readonly MemoryRecord[]> {

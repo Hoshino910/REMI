@@ -18,6 +18,17 @@ export type TelemetryEvent =
     readonly inserted: boolean
   }
   | {
+    readonly type: 'memory/correction'
+    readonly time: number
+    readonly sessionId: string
+    readonly sourceEventSeq: number
+    readonly resolution: 'resolved' | 'not-found' | 'ambiguous'
+    readonly pattern: 'zh-change' | 'en-change' | 'en-replace'
+    readonly candidateCount: number
+    readonly targetMemoryId?: string
+    readonly replacementInserted: boolean
+  }
+  | {
     readonly type: 'memory/retrieval'
     readonly time: number
     readonly trace: RetrievalTrace

@@ -6,6 +6,7 @@ import {
   type AssociationReinforcement,
   type MemoryRecord,
   type MemoryStore,
+  type MemorySupersession,
   type RetrievalTrace,
   stableHash,
 } from '../src/index.js'
@@ -29,6 +30,19 @@ class TestStore implements MemoryStore {
 
   async appendTrace(trace: RetrievalTrace): Promise<void> {
     this.traces.push(trace)
+  }
+
+  async supersede(input: MemorySupersession): Promise<boolean> {
+    const target = this.records.get(input.targetMemoryId)
+    if (target === undefined || target.sessionId !== input.sessionId) throw new Error('missing target')
+    if (target.status === 'superseded' && target.supersededByMemoryId === input.replacement.id) return false
+    if (target.status !== 'active' || this.records.has(input.replacement.id)) throw new Error('invalid transition')
+    this.records.set(input.replacement.id, input.replacement)
+    this.records.set(target.id, {
+      ...target, status: 'superseded', supersededByMemoryId: input.replacement.id,
+      validUntil: input.at, revisionReason: input.reason, revisionSource: input.source,
+    })
+    return true
   }
 
   async listAssociations(
@@ -110,7 +124,7 @@ describe('SelectiveMemoryRuntime', () => {
     expect(result.trace.reinforcedEdges).toBe(0)
   })
 
-  it('retrieves only active current truth while retaining lifecycle exclusions in the trace', async () => {
+  it('atomically supersedes current truth and exposes history only for a history query', async () => {
     const store = new TestStore()
     const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
     const sessionId = 'current-truth'
@@ -118,22 +132,30 @@ describe('SelectiveMemoryRuntime', () => {
     await runtime.ingest({
       sessionId, sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
       content: 'The Cedar service port is 6389.', timestamp: 1,
-      status: 'superseded', supersededByMemoryId: replacementId, validUntil: 2,
-      revisionReason: 'User changed the port.', revisionSource: 'deterministic',
     })
-    await runtime.ingest({
-      sessionId, sourceEventSeq: 2, role: 'user', sourceType: 'user/message',
-      content: 'The Cedar service port is 8247.', timestamp: 2,
-      supersedesMemoryId: `m_${stableHash(`${sessionId}\u00001`)}`,
-      revisionReason: 'User changed the port.', revisionSource: 'deterministic',
-    })
+    await expect(runtime.supersede({
+      sessionId, targetMemoryId: `m_${stableHash(`${sessionId}\u00001`)}`,
+      replacement: { sourceEventSeq: 2, role: 'user', sourceType: 'user/message', content: 'The Cedar service port is 8247.', timestamp: 2 },
+      at: 2, reason: 'User changed the port.', source: 'deterministic',
+    })).resolves.toBe(true)
+    await expect(runtime.supersede({
+      sessionId, targetMemoryId: `m_${stableHash(`${sessionId}\u00001`)}`,
+      replacement: { sourceEventSeq: 2, role: 'user', sourceType: 'user/message', content: 'The Cedar service port is 8247.', timestamp: 2 },
+      at: 2, reason: 'User changed the port.', source: 'deterministic',
+    })).resolves.toBe(false)
 
-    const result = await runtime.retrieve({ sessionId, query: 'Cedar service port', tokenBudget: 400, limit: 2, now: 3 })
-    expect(result.memories.map(item => item.memory.content)).toEqual(['The Cedar service port is 8247.'])
-    expect(result.trace.candidates.find(item => item.memoryId !== replacementId)).toMatchObject({
+    const current = await runtime.retrieve({ sessionId, query: 'current Cedar service port', tokenBudget: 400, limit: 2, now: 3 })
+    expect(current.memories.map(item => item.memory.content)).toEqual(['The Cedar service port is 8247.'])
+    expect(current.trace.candidates.find(item => item.memoryId !== replacementId)).toMatchObject({
       decision: 'superseded', lifecycleStatus: 'superseded', supersededByMemoryId: replacementId,
     })
-    expect(result.trace.reinforcedEdges).toBe(0)
+
+    const history = await runtime.retrieve({ sessionId, query: 'What was the original Cedar service port and what is it now?', tokenBudget: 500, limit: 2, now: 3 })
+    expect(history.memories.map(item => item.memory.content)).toEqual(expect.arrayContaining([
+      'The Cedar service port is 6389.', 'The Cedar service port is 8247.',
+    ]))
+    expect(current.trace.reinforcedEdges).toBe(0)
+    expect(history.trace.reinforcedEdges).toBe(0)
   })
 
   it('retrieves relevant memory and exposes component scores', async () => {

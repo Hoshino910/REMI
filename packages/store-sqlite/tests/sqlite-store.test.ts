@@ -70,6 +70,40 @@ describe('SqliteMemoryStore', () => {
     })
   })
 
+  it('commits supersession atomically and treats an exact event replay as idempotent', async () => {
+    const store = new SqliteMemoryStore({ filename: ':memory:' })
+    stores.push(store)
+    const runtime = new SelectiveMemoryRuntime(store)
+    await runtime.ingest({
+      sessionId: 'atomic', sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
+      content: 'Cedar port is 6389.', timestamp: 10,
+    })
+    const target = (await store.listBySession('atomic', 1))[0]!
+    const operation = {
+      sessionId: 'atomic', targetMemoryId: target.id,
+      replacement: { sourceEventSeq: 2, role: 'user' as const, sourceType: 'user/message', content: 'Cedar port is 8247.', timestamp: 20 },
+      at: 20, reason: 'Explicit correction.', source: 'deterministic' as const,
+    }
+    await expect(runtime.supersede(operation)).resolves.toBe(true)
+    await expect(runtime.supersede(operation)).resolves.toBe(false)
+    const all = await store.listBySession('atomic', 10, { includeInactive: true })
+    expect(all).toHaveLength(2)
+    expect(all[0]).toMatchObject({ status: 'active', supersedesMemoryId: target.id })
+    expect(all[1]).toMatchObject({ status: 'superseded', supersededByMemoryId: all[0]!.id, validUntil: 20 })
+  })
+
+  it('rolls back the replacement when a supersession target is invalid', async () => {
+    const store = new SqliteMemoryStore({ filename: ':memory:' })
+    stores.push(store)
+    const runtime = new SelectiveMemoryRuntime(store)
+    await expect(runtime.supersede({
+      sessionId: 'rollback', targetMemoryId: 'missing',
+      replacement: { sourceEventSeq: 2, role: 'user', sourceType: 'user/message', content: 'Cedar port is 8247.', timestamp: 20 },
+      at: 20, reason: 'Explicit correction.', source: 'deterministic',
+    })).rejects.toThrow('does not exist')
+    await expect(store.stats()).resolves.toEqual({ memories: 0, traces: 0, associations: 0 })
+  })
+
   it('migrates a v2 database to lifecycle schema v3 without losing memories', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'remi-v2-migration-'))
     temporaryDirectories.push(directory)

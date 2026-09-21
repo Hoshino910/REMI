@@ -16,6 +16,7 @@ import type {
   MemoryRecord,
   MemoryRuntime,
   MemoryRuntimeConfig,
+  MemorySupersessionInput,
   MemoryStore,
   RetrievalCandidateTrace,
   RetrievalRequest,
@@ -173,6 +174,10 @@ function inferredImportance(input: MemoryInput): number {
   return clamp01(base + (signal ? 0.18 : 0))
 }
 
+function requestsHistory(query: string): boolean {
+  return /\b(history|historical|original(?:ly)?|previous(?:ly)?|before|used to|changed from|old value)\b|历史|最初|原来|之前|曾经|旧值|改前|从什么改/iu.test(query)
+}
+
 export class SelectiveMemoryRuntime implements MemoryRuntime {
   private readonly config: ResolvedConfig
 
@@ -183,14 +188,14 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     this.config = resolveConfig(config)
   }
 
-  async ingest(input: MemoryInput): Promise<boolean> {
+  private toRecord(input: MemoryInput): MemoryRecord | undefined {
     const content = normalizeText(input.content)
-    if (content.length === 0) return false
+    if (content.length === 0) return undefined
     const contentHash = stableHash(content)
     const sourceIdentity = input.sourceEventSeq === undefined
       ? contentHash
       : String(input.sourceEventSeq)
-    const record: MemoryRecord = {
+    return {
       id: `m_${stableHash(`${input.sessionId}\u0000${sourceIdentity}`)}`,
       sessionId: input.sessionId,
       ...(input.sourceEventSeq === undefined ? {} : { sourceEventSeq: input.sourceEventSeq }),
@@ -214,7 +219,36 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       estimatedTokens: estimateTokens(content),
       metadata: input.metadata ?? {},
     }
+  }
+
+  async ingest(input: MemoryInput): Promise<boolean> {
+    const record = this.toRecord(input)
+    if (record === undefined) return false
     return this.store.put(record)
+  }
+
+  async supersede(input: MemorySupersessionInput): Promise<boolean> {
+    if (this.store.supersede === undefined) throw new Error('Memory store does not support atomic supersession')
+    const at = input.at ?? input.replacement.timestamp
+    const replacement = this.toRecord({
+      ...input.replacement,
+      sessionId: input.sessionId,
+      status: 'active',
+      supersedesMemoryId: input.targetMemoryId,
+      validFrom: at,
+      revisionReason: input.reason,
+      revisionSource: input.source,
+    })
+    if (replacement === undefined) throw new Error('Replacement memory cannot be empty')
+    if (replacement.id === input.targetMemoryId) throw new Error('A memory cannot supersede itself')
+    return this.store.supersede({
+      sessionId: input.sessionId,
+      targetMemoryId: input.targetMemoryId,
+      replacement,
+      at,
+      reason: input.reason,
+      source: input.source,
+    })
   }
 
   async retrieve(input: RetrievalRequest): Promise<RetrievalResult> {
@@ -223,6 +257,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     const tokenBudget = Math.max(0, Math.floor(input.tokenBudget))
     const limit = Math.max(0, Math.floor(input.limit ?? 8))
     const query = normalizeText(input.query)
+    const includeSuperseded = input.includeSuperseded ?? requestsHistory(query)
     const traceId = `rt_${stableHash(`${input.sessionId}\u0000${startedAt}\u0000${query}`)}`
     const aware = this.config.contentAwareRetrievalEnabled
     const queryEmbedding = hashedEmbedding(aware ? retrievalView(query) : query, this.config.embeddingDimensions)
@@ -259,7 +294,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         finalScore,
         rendered,
         estimatedTokens: estimateTokens(rendered),
-        decision: (memory.status === 'active' ? 'budget' : memory.status) as CandidateDecision,
+        decision: (memory.status === 'active' || (includeSuperseded && memory.status === 'superseded')
+          ? 'budget' : memory.status) as CandidateDecision,
       }
     })
 
@@ -311,7 +347,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     let consumed = framingTokens
     const selected: ScoredCandidate[] = []
     for (const candidate of candidates) {
-      if (candidate.memory.status !== 'active') continue
+      if (candidate.memory.status !== 'active'
+        && !(includeSuperseded && candidate.memory.status === 'superseded')) continue
       if (aware && (candidate.queryCoverage <= 0 || candidate.queryCoverage < this.config.minLexicalCoverage)) {
         candidate.decision = 'below-min-relevance'
         continue
@@ -345,7 +382,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     }
     await this.store.touch(selected.map(item => item.memory.id), now)
     let reinforcedEdges = 0
-    const reinforcementItems = selected.filter(item => !aware || item.contentKind === 'statement')
+    const reinforcementItems = selected.filter(item => item.memory.status === 'active'
+      && (!aware || item.contentKind === 'statement'))
     if (
       this.config.hebbianEnabled
       && reinforcementItems.length > 1

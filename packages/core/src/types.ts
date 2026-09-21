@@ -113,6 +113,8 @@ export interface RetrievalRequest {
   readonly limit?: number
   readonly emotion?: EmotionVector
   readonly now?: number
+  /** Include superseded facts for an explicit history query. Excluded/deleted records stay unavailable. */
+  readonly includeSuperseded?: boolean
 }
 
 export interface RetrievalResult {
@@ -148,6 +150,26 @@ export interface AssociationReinforcement {
   readonly learningRate: number
   readonly maxWeight: number
   readonly halfLifeDays: number
+}
+
+export interface MemorySupersession {
+  readonly sessionId: string
+  readonly targetMemoryId: string
+  readonly replacement: MemoryRecord
+  readonly at: number
+  readonly reason: string
+  readonly source: Exclude<MemoryRevisionSource, 'migration'>
+}
+
+export interface MemorySupersessionInput {
+  readonly sessionId: string
+  readonly targetMemoryId: string
+  readonly replacement: Omit<MemoryInput,
+    'sessionId' | 'status' | 'supersedesMemoryId' | 'supersededByMemoryId'
+    | 'validFrom' | 'validUntil' | 'revisionReason' | 'revisionSource'>
+  readonly at?: number
+  readonly reason: string
+  readonly source: Exclude<MemoryRevisionSource, 'migration'>
 }
 
 export interface MemoryRuntimeConfig {
@@ -218,6 +240,8 @@ export interface MemoryStore {
     limit: number,
   ): Promise<readonly AssociationEdge[]>
   reinforceAssociations?(input: AssociationReinforcement): Promise<number>
+  /** Atomically inserts the replacement and marks the active target superseded. */
+  supersede?(input: MemorySupersession): Promise<boolean>
   stats(): Promise<StoreStats>
   close(): Promise<void>
 }
@@ -229,6 +253,7 @@ export interface MemoryListOptions {
 
 export interface MemoryRuntime {
   ingest(event: MemoryInput): Promise<boolean>
+  supersede(input: MemorySupersessionInput): Promise<boolean>
   retrieve(input: RetrievalRequest): Promise<RetrievalResult>
   compact(input: CompactionRequest): Promise<CompactionResult>
 }

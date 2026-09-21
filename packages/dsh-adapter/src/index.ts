@@ -16,6 +16,7 @@ import {
   sessionEventToMemoryInput,
 } from './extract.js'
 import { analyzeEmotionWithDsh } from './emotion.js'
+import { ingestWithCurrentTruth } from './correction.js'
 import { withTransparentMemoryWindow } from './window.js'
 import {
   JsonlTelemetrySink,
@@ -69,6 +70,7 @@ export interface Config {
   compactionThresholdRatio?: number
   compactionRetainRatio?: number
   autoCompaction?: boolean
+  currentTruthEnabled?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -103,6 +105,7 @@ export const Config: z<Config> = z.object({
   compactionThresholdRatio: z.number().min(0.1).max(0.99).default(0.8),
   compactionRetainRatio: z.number().min(0.01).max(0.9).default(0.16),
   autoCompaction: z.boolean().default(true),
+  currentTruthEnabled: z.boolean().default(false),
 })
 
 function resolvedPath(value: string): string {
@@ -160,6 +163,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       compactionThresholdRatio: config.compactionThresholdRatio ?? 0.8,
       compactionRetainRatio: config.compactionRetainRatio ?? 0.16,
       autoCompaction: config.autoCompaction ?? true,
+      currentTruthEnabled: config.currentTruthEnabled ?? false,
     }
     super(ctx, {
       auto: resolved.autoCompaction,
@@ -286,14 +290,31 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
           this.pluginConfig.maxMemoryChars,
         )
         if (input === undefined) return
-        const inserted = await this.runtime.ingest(input)
+        const result = await ingestWithCurrentTruth(this.runtime, this.store, input, {
+          enabled: this.pluginConfig.currentTruthEnabled,
+          maxCandidates: this.pluginConfig.maxCandidates,
+        })
         this.telemetry.record({
           type: 'memory/ingested',
           time: Date.now(),
           sessionId: input.sessionId,
           sourceEventSeq: input.sourceEventSeq ?? Number(event.seq),
-          inserted,
+          inserted: result.inserted,
         })
+        if (result.correction !== undefined) {
+          this.telemetry.record({
+            type: 'memory/correction',
+            time: Date.now(),
+            sessionId: input.sessionId,
+            sourceEventSeq: input.sourceEventSeq ?? Number(event.seq),
+            resolution: result.correction.resolution,
+            pattern: result.correction.pattern,
+            candidateCount: result.correction.candidateCount,
+            ...(result.correction.targetMemoryId === undefined
+              ? {} : { targetMemoryId: result.correction.targetMemoryId }),
+            replacementInserted: result.inserted,
+          })
+        }
       })
       .catch((error: unknown) => {
         this.recordError('ingest', error)
@@ -376,5 +397,6 @@ export function apply(ctx: Context, config: Config): void {
 export default { name, inject, Config, apply }
 export * from './extract.js'
 export * from './emotion.js'
+export * from './correction.js'
 export * from './telemetry.js'
 export * from './window.js'

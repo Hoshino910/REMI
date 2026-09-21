@@ -20,6 +20,9 @@
         retrievalLimit: 8
         minRetrievalScore: 0.12
         transparentWindowEnabled: true
+        # Experimental v0.3 alpha: explicit corrections atomically supersede old facts.
+        # Leave disabled until you have run the isolated current-truth test preset.
+        currentTruthEnabled: false
         similarityWeight: 0.55
         recencyWeight: 0.15
         importanceWeight: 0.10
