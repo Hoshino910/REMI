@@ -10,7 +10,7 @@ REMI is not a standalone web application, does not replace the Harness Agent Loo
 
 > **Status:** Experimental. Do not use REMI in production environments yet.
 
-See [CHANGELOG.md](CHANGELOG.md) for release changes. v0.2.1 evidence remains in [the validation note](docs/V0.2.1_VALIDATION.md); the v0.3 current-truth path is not considered live-validated until the [isolated DSH test](docs/V0.3_CURRENT_TRUTH_TEST.md) is complete.
+See [CHANGELOG.md](CHANGELOG.md) for release changes. v0.2.1 evidence remains in [the validation note](docs/V0.2.1_VALIDATION.md). The v0.3 current-truth path has completed one isolated live DSH run; protocol, evidence, and remaining caveats are recorded in [the validation note](docs/V0.3_CURRENT_TRUTH_TEST.md).
 
 ## Features
 
@@ -317,9 +317,10 @@ Current verification results:
 - every workspace package builds and type-checks;
 - an isolated DSH Desktop 2.0.6 headless smoke test returned `REMI_LIVE_OK`;
 - the smoke-test memory window used 470 of 600 estimated tokens;
-- custom compaction reduced 1,766 estimated input tokens to 478 output tokens.
+- custom compaction reduced 1,766 estimated input tokens to 478 output tokens;
+- a clean-database DSH Desktop 2.0.6 current-truth run preserved the active value, the superseded value, and an unrelated same-valued fact across native compaction and a Desktop restart.
 
-The DSH smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. A separate remote-provider probe returned `TRANSPORT: Connection error`; REMI successfully used its heuristic fallback, but remote service availability was not verified.
+The headless smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. The isolated current-truth run used the configured live DSH model path. Provider retries were counted as provider behavior; SQLite lifecycle state and REMI telemetry were checked independently. See [the v0.3 validation note](docs/V0.3_CURRENT_TRUTH_TEST.md) for the exact boundary of the evidence.
 
 ## Known limitations
 
@@ -327,7 +328,7 @@ The DSH smoke test used a deterministic local provider to verify lifecycle integ
 - No default cross-session retrieval scope.
 - Hashed embeddings are placeholders with limited cross-language and synonym recall.
 - Current-truth matching is limited to explicit deterministic forms and exact subject/value evidence; there is no model-based resolver, merge UI, or deletion API.
-- The v0.3 current-truth path has passed offline tests but still requires a clean-database DSH lifecycle, restart, and post-compaction validation before release.
+- Current-truth has one clean-database live validation run, not a broad multilingual or long-duration evaluation. Desktop persistence was verified after an automated crash-style restart; one app-controlled clean shutdown remains a manual prerelease check.
 - Hebbian edges express retrieval co-occurrence, not truth or causality.
 - Affect hints have no cross-language calibration, temporal smoothing, or diagnostic meaning.
 - Extractive compaction is deterministic but can omit implicit decisions or retain outdated text.

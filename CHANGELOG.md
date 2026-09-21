@@ -13,7 +13,8 @@
 ### Validation
 
 - Build and typecheck pass; 9 test files and 48 tests pass locally.
-- Clean-database DSH lifecycle, restart persistence, and post-compaction validation remain required before prerelease publication.
+- A clean-database DSH Desktop 2.0.6 run passed deterministic supersession, same-valued-neighbor isolation, current/history retrieval, ambiguity fail-safe, native compaction, and crash-restart persistence checks.
+- One app-controlled clean shutdown/restart remains a manual prerelease check; the automated run used a forced process restart and then recovered the same session and SQLite state.
 
 ## v0.2.1 - 2026-09-19
 

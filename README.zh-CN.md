@@ -10,7 +10,7 @@ REMI 不是独立 Web 应用，不替换 Harness Agent Loop，也不训练或微
 
 > **当前状态：**早期测试版本，请勿用于生产环境。
 
-版本改动见 [CHANGELOG.md](CHANGELOG.md)。v0.2.1 的证据仍保存在[验证说明](docs/V0.2.1_VALIDATION.md)；v0.3 current-truth 链路在完成[隔离 DSH 测试](docs/V0.3_CURRENT_TRUTH_TEST.md)前不视为已经过在线验证。
+版本改动见 [CHANGELOG.md](CHANGELOG.md)。v0.2.1 的证据仍保存在[验证说明](docs/V0.2.1_VALIDATION.md)。v0.3 current-truth 链路已经完成一轮隔离的真实 DSH 验证；测试协议、证据与剩余边界见 [v0.3 验证说明](docs/V0.3_CURRENT_TRUTH_TEST.md)。
 
 ## 功能
 
@@ -317,9 +317,10 @@ pnpm benchmark
 - 所有 workspace package 均可 build 并通过 typecheck；
 - DSH Desktop 2.0.6 隔离 headless smoke test 返回 `REMI_LIVE_OK`；
 - smoke test 的记忆窗口使用 470 / 600 estimated tokens；
-- custom compaction 将 1766 estimated input tokens 压缩为 478 output tokens。
+- custom compaction 将 1766 estimated input tokens 压缩为 478 output tokens；
+- DSH Desktop 2.0.6 的全新数据库 current-truth 测试，在原生压缩和 Desktop 重启后仍能区分当前值、被替换值，以及具有相同旧值但不相关的事实。
 
-DSH smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.stream()` 接口。单独的远程 provider 探测返回 `TRANSPORT: Connection error`；REMI 成功执行 heuristic fallback，但该结果不代表远程服务可用性已经验证。
+Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.stream()` 接口；隔离 current-truth 测试使用 DSH 当前配置的真实模型链路。Provider 重试只计为 provider 行为，SQLite 生命周期状态和 REMI telemetry 单独核验。证据边界见 [v0.3 验证说明](docs/V0.3_CURRENT_TRUTH_TEST.md)。
 
 ## 已知限制
 
@@ -327,7 +328,7 @@ DSH smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.str
 - 不默认提供跨 session 检索作用域。
 - Hashed embedding 是占位实现，跨语言和同义表达召回能力有限。
 - Current-truth 目前只处理明确的确定性形式，并要求 subject/旧值证据唯一；尚无模型 resolver、合并 UI 或删除 API。
-- v0.3 current-truth 链路已通过离线测试，但发布前仍需在全新数据库上完成 DSH 生命周期、重启持久化和压缩后验证。
+- Current-truth 已完成一轮全新数据库在线验证，但还不是多语言、长周期的广泛评估。当前已验证自动化异常退出后的 Desktop 持久化；发布前仍需人工执行一次应用内的正常关闭/重启检查。
 - Hebbian 边表达检索共现，不代表事实或因果。
 - Affect 提示没有跨语言校准、时间平滑或诊断能力。
 - Extractive compaction 结果稳定，但可能遗漏隐含决策或保留过时文字。
