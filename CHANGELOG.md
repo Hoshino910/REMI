@@ -14,7 +14,7 @@
 
 - Build and typecheck pass; 9 test files and 48 tests pass locally.
 - A clean-database DSH Desktop 2.0.6 run passed deterministic supersession, same-valued-neighbor isolation, current/history retrieval, ambiguity fail-safe, native compaction, and crash-restart persistence checks.
-- One app-controlled clean shutdown/restart remains a manual prerelease check; the automated run used a forced process restart and then recovered the same session and SQLite state.
+- A subsequent app-controlled Desktop restart reopened the same session and SQLite state; current and historical answers remained correct.
 
 ## v0.2.1 - 2026-09-19
 

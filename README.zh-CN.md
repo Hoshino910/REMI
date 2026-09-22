@@ -328,7 +328,7 @@ Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.ll
 - 不默认提供跨 session 检索作用域。
 - Hashed embedding 是占位实现，跨语言和同义表达召回能力有限。
 - Current-truth 目前只处理明确的确定性形式，并要求 subject/旧值证据唯一；尚无模型 resolver、合并 UI 或删除 API。
-- Current-truth 已完成一轮全新数据库在线验证，但还不是多语言、长周期的广泛评估。当前已验证自动化异常退出后的 Desktop 持久化；发布前仍需人工执行一次应用内的正常关闭/重启检查。
+- Current-truth 已完成一轮全新数据库在线验证，包括原生压缩、异常退出恢复和应用内正常重启。该证据仍只覆盖有限的英文协议，不代表已经完成多语言或长周期评估。
 - Hebbian 边表达检索共现，不代表事实或因果。
 - Affect 提示没有跨语言校准、时间平滑或诊断能力。
 - Extractive compaction 结果稳定，但可能遗漏隐含决策或保留过时文字。

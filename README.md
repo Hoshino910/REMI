@@ -328,7 +328,7 @@ The headless smoke test used a deterministic local provider to verify lifecycle 
 - No default cross-session retrieval scope.
 - Hashed embeddings are placeholders with limited cross-language and synonym recall.
 - Current-truth matching is limited to explicit deterministic forms and exact subject/value evidence; there is no model-based resolver, merge UI, or deletion API.
-- Current-truth has one clean-database live validation run, not a broad multilingual or long-duration evaluation. Desktop persistence was verified after an automated crash-style restart; one app-controlled clean shutdown remains a manual prerelease check.
+- Current-truth has one clean-database live validation run, including native compaction, crash recovery, and an app-controlled Desktop restart. This remains a bounded English protocol, not a broad multilingual or long-duration evaluation.
 - Hebbian edges express retrieval co-occurrence, not truth or causality.
 - Affect hints have no cross-language calibration, temporal smoothing, or diagnostic meaning.
 - Extractive compaction is deterministic but can omit implicit decisions or retain outdated text.
