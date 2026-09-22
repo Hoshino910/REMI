@@ -322,8 +322,9 @@ pnpm benchmark
 - custom compaction 将 1766 estimated input tokens 压缩为 478 output tokens；
 - DSH Desktop 2.0.6 的全新数据库 current-truth 测试，在原生压缩和 Desktop 重启后仍能区分当前值、被替换值，以及具有相同旧值但不相关的事实。
 - 在 3 个用例的确定性 benchmark fixture 中，窗口卫生层与 `no_window_hygiene` 相比，hit rate 均为 1.0，mean selected memories 从 2 降到 1，mean estimated retrieval tokens 从 89 降到 74。该小样本只验证机制，不证明模型回答质量或生产成本收益。
+- DSH Desktop 2.0.6 的在线透明窗口测试确认：包装 ACK 为 `low-utility`，相邻实体为 `focus-mismatch`，明确的未来回溯使用 `utilityFactor = 1`，两条带不同指令包装的重复事实分别得到一条 `selected` 和一条 `redundant`。
 
-Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.stream()` 接口；隔离 current-truth 测试使用 DSH 当前配置的真实模型链路。Provider 重试只计为 provider 行为，SQLite 生命周期状态和 REMI telemetry 单独核验。证据边界见 [v0.3 验证说明](docs/V0.3_CURRENT_TRUTH_TEST.md)。
+Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.stream()` 接口；隔离 current-truth 与透明窗口测试使用 DSH 当前配置的真实模型链路。Provider 重试只计为 provider 行为，SQLite 生命周期状态和 REMI telemetry 单独核验。证据边界见 [current-truth 验证说明](docs/V0.3_CURRENT_TRUTH_TEST.md)和[窗口卫生验证说明](docs/V0.3_WINDOW_HYGIENE_TEST.md)。
 
 ## 已知限制
 

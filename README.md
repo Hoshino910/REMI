@@ -322,8 +322,9 @@ Current verification results:
 - custom compaction reduced 1,766 estimated input tokens to 478 output tokens;
 - a clean-database DSH Desktop 2.0.6 current-truth run preserved the active value, the superseded value, and an unrelated same-valued fact across native compaction and a Desktop restart.
 - in the three-case deterministic benchmark fixture, window hygiene kept hit rate at 1.0 while reducing mean selected memories from 2 to 1 and mean estimated retrieval tokens from 89 to 74 versus `no_window_hygiene`. This fixture verifies mechanics, not model-answer quality or production cost savings.
+- a live DSH Desktop 2.0.6 transparent-window run confirmed wrapped acknowledgements as `low-utility`, sibling entities as `focus-mismatch`, explicit future recall with `utilityFactor = 1`, and instruction-wrapped duplicate facts as one `selected` plus one `redundant` candidate.
 
-The headless smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. The isolated current-truth run used the configured live DSH model path. Provider retries were counted as provider behavior; SQLite lifecycle state and REMI telemetry were checked independently. See [the v0.3 validation note](docs/V0.3_CURRENT_TRUTH_TEST.md) for the exact boundary of the evidence.
+The headless smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. The isolated current-truth and transparent-window runs used the configured live DSH model path. Provider retries were counted as provider behavior; SQLite lifecycle state and REMI telemetry were checked independently. See the [current-truth validation note](docs/V0.3_CURRENT_TRUTH_TEST.md) and [window-hygiene validation note](docs/V0.3_WINDOW_HYGIENE_TEST.md) for the exact evidence boundaries.
 
 ## Known limitations
 
