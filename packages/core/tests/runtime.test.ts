@@ -195,7 +195,7 @@ describe('SelectiveMemoryRuntime', () => {
     const store = new TestStore()
     const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
     const duplicateForms = [
-      'For the REMI window-hygiene test, reply only ACK. The Orion service port is 7314.',
+      'For the REMI window-hygiene retest, reply only ACK. The Orion service port is 7314.',
       'The Orion service port is 7314. Reply exactly ACK with no other text.',
     ]
     for (const [index, content] of duplicateForms.entries()) {

@@ -3,7 +3,7 @@ import { normalizeText, tokenize } from './similarity.js'
 export type MemoryContentKind = 'statement' | 'conditional' | 'question' | 'acknowledgement'
 
 const CONDITIONAL_LANGUAGE = /\b(?:may|might|perhaps|possibly|later|consider(?:ing)?|plan(?:ning)?\s+to|intend(?:ing)?\s+to)\b|也许|可能|或许|以后|稍后|考虑|计划|打算/iu
-const OUTPUT_DIRECTIVE_CLAUSE = /^(?:for\b.*?\btest,\s*)?(?:please\s+)?(?:reply|respond|output|return)\b|^(?:请)?(?:只|仅)?(?:回复|输出)\b/iu
+const OUTPUT_DIRECTIVE_CLAUSE = /^(?:for\b[^.!?。！？]*,\s*)?(?:please\s+)?(?:reply|respond|output|return)\s+(?:only\b|exactly\b|with\b|as\b|in\b|ack\b|json\b)|^(?:请)?(?:只|仅)?(?:回复|输出)\b/iu
 const WRAPPED_ACKNOWLEDGEMENT = /^[\s#>*_⏵▶▷▸›»\-–—]*(?:收到(?:\s*remi)?(?:\s*测试指令)?|回复\s*ack)\s*ack[。.!]?$/iu
 
 const FOCUS_STOP_WORDS = new Set([
