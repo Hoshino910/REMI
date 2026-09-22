@@ -3,6 +3,8 @@ import { normalizeText, tokenize } from './similarity.js'
 export type MemoryContentKind = 'statement' | 'conditional' | 'question' | 'acknowledgement'
 
 const CONDITIONAL_LANGUAGE = /\b(?:may|might|perhaps|possibly|later|consider(?:ing)?|plan(?:ning)?\s+to|intend(?:ing)?\s+to)\b|也许|可能|或许|以后|稍后|考虑|计划|打算/iu
+const OUTPUT_DIRECTIVE_CLAUSE = /^(?:for\b.*?\btest,\s*)?(?:please\s+)?(?:reply|respond|output|return)\b|^(?:请)?(?:只|仅)?(?:回复|输出)\b/iu
+const WRAPPED_ACKNOWLEDGEMENT = /^[\s#>*_⏵▶▷▸›»\-–—]*(?:收到(?:\s*remi)?(?:\s*测试指令)?|回复\s*ack)\s*ack[。.!]?$/iu
 
 const FOCUS_STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'current', 'database', 'do', 'for', 'history', 'how', 'is',
@@ -15,7 +17,11 @@ const FOCUS_STOP_WORDS = new Set([
  * Remove output instructions without changing the durable original text.
  */
 export function retrievalView(content: string): string {
-  return normalizeText(content)
+  const withoutDirectiveClauses = normalizeText(content)
+    .split(/(?<=[.!?。！？])\s+/u)
+    .filter(clause => !OUTPUT_DIRECTIVE_CLAUSE.test(clause))
+    .join(' ')
+  return withoutDirectiveClauses
     .replace(/(?:只(?:输出|回复)|仅(?:输出|回复)|不要(?:猜测|复述|总结)|不(?:猜测|调用工具|搜索网页|读写文件|执行命令)).*$/iu, '')
     .replace(/\b(?:only (?:output|reply|respond|return)|do not (?:guess|repeat|summari[sz]e|use tools)).*$/iu, '')
     .replace(/(?:请)?(?:回溯|回忆|回顾|记住|告诉我|根据|最早的|之前的|前面的)|(?:必须保留的)?虚构约定|约定|只输出相应字段/gu, ' ')
@@ -28,7 +34,8 @@ export function retrievalView(content: string): string {
 export function contentKind(content: string): MemoryContentKind {
   const value = normalizeText(content)
   if (/^(?:约定|包装要求|发货要求|素材\d+)?已收到[。.!]?$/u.test(value)
-    || /^(?:ack|ok|okay|thanks|thank you|received|acknowledged|got it)[.!]?$/iu.test(value)) return 'acknowledgement'
+    || /^(?:ack|ok|okay|thanks|thank you|received|acknowledged|got it)[.!]?$/iu.test(value)
+    || WRAPPED_ACKNOWLEDGEMENT.test(value)) return 'acknowledgement'
   // Examine the meaningful first clause, not a trailing "only reply" request.
   const primary = value.split(/只(?:回复|输出)|仅(?:回复|输出)|\bonly (?:reply|output|return)\b/iu)[0] ?? value
   if (/^(?:请)?(?:回溯|回忆|回顾|告诉我|查询)|^(?:我们|之前|最早).*(?:什么|哪个|是多少|在哪里)|^(?:please\s+)?(?:recall|retrieve|tell me|what|which|where|when|how)\b/iu.test(primary)

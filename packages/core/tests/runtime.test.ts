@@ -134,7 +134,7 @@ describe('SelectiveMemoryRuntime', () => {
       'The Cedar service port is 8247.',
       'The Maple service port is 6389.',
       'We may change the Cedar service port later. Reply only ACK.',
-      'ACK',
+      '⏵ 回复 ACK ACK',
       'What was the Cedar service port?',
       query,
     ]
@@ -155,7 +155,7 @@ describe('SelectiveMemoryRuntime', () => {
     }
     expect(decisionFor('The Maple service port is 6389.')).toBe('focus-mismatch')
     expect(decisionFor('We may change the Cedar service port later. Reply only ACK.')).toBe('conditional')
-    expect(decisionFor('ACK')).toBe('low-utility')
+    expect(decisionFor('⏵ 回复 ACK ACK')).toBe('low-utility')
     expect(decisionFor('What was the Cedar service port?')).toBe('low-utility')
     expect(decisionFor(query)).toBe('current-query')
     expect(result.trace.reinforcedEdges).toBe(0)
@@ -170,7 +170,7 @@ describe('SelectiveMemoryRuntime', () => {
   })
 
   it('recalls conditional plans only when the query explicitly asks for them', async () => {
-    const runtime = new SelectiveMemoryRuntime(new TestStore(), { minScore: 0 })
+    const runtime = new SelectiveMemoryRuntime(new TestStore())
     await runtime.ingest({
       sessionId: 'future-plan', sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
       content: 'We may change the Cedar service port later.', timestamp: 1,
@@ -188,21 +188,25 @@ describe('SelectiveMemoryRuntime', () => {
     expect(planned.memories.map(item => item.memory.content)).toEqual([
       'We may change the Cedar service port later.',
     ])
+    expect(planned.trace.candidates[0]?.utilityFactor).toBe(1)
   })
 
   it('deduplicates repeated statements while retaining the highest-ranked source', async () => {
     const store = new TestStore()
     const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
-    for (const [index, role] of (['user', 'assistant'] as const).entries()) {
+    const duplicateForms = [
+      'For the REMI window-hygiene test, reply only ACK. The Orion service port is 7314.',
+      'The Orion service port is 7314. Reply exactly ACK with no other text.',
+    ]
+    for (const [index, content] of duplicateForms.entries()) {
       await runtime.ingest({
-        sessionId: 'duplicate-fact', sourceEventSeq: index + 1, role,
-        sourceType: role === 'user' ? 'user/message' : 'assistant/message',
-        content: 'The Cedar service port is 8247.', timestamp: index + 1,
+        sessionId: 'duplicate-fact', sourceEventSeq: index + 1, role: 'user',
+        sourceType: 'user/message', content, timestamp: index + 1,
       })
     }
 
     const result = await runtime.retrieve({
-      sessionId: 'duplicate-fact', query: 'What is the current Cedar service port?', tokenBudget: 400, limit: 4, now: 3,
+      sessionId: 'duplicate-fact', query: 'What is the current Orion service port?', tokenBudget: 400, limit: 4, now: 3,
     })
     expect(result.memories).toHaveLength(1)
     expect(result.trace.candidates.filter(item => item.decision === 'redundant')).toHaveLength(1)

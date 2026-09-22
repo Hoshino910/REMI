@@ -285,7 +285,10 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     const lexical = aware ? lexicalRanker(query, records.map(m => m.content)) : []
     const candidates: ScoredCandidate[] = records.map((memory, index) => {
       const kind = contentKind(memory.content)
-      const utility = aware ? utilityFactor(kind) : 1
+      // Conditional records are low-value background for ordinary factual
+      // queries, but regain full utility when the query explicitly asks about
+      // plans, possibilities, or later changes.
+      const utility = aware ? (kind === 'conditional' && allowConditional ? 1 : utilityFactor(kind)) : 1
       const embeddingScore = cosineSimilarity(queryEmbedding, aware ? hashedEmbedding(retrievalView(memory.content), this.config.embeddingDimensions) : memory.embedding)
       const lexicalScore = aware ? lexical[index]!.lexicalScore : lexicalSimilarity(query, memory.content)
       const similarityScore = 0.65 * embeddingScore + 0.35 * lexicalScore

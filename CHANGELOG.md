@@ -11,6 +11,7 @@
 - Added a frozen current-truth fixture and regression tests for ambiguity, rollback, history access, and inactive-memory graph isolation.
 - Added `window-hygiene-v2` admission rules for current-turn echoes, questions/acknowledgements, conditional statements, explicit entity mismatches, and repeated statements.
 - Added privacy-preserving `focusOverlap` and admission decisions to retrieval traces plus a `no_window_hygiene` benchmark ablation.
+- Normalized instruction-only clauses before duplicate comparison, recognized common DSH-rendered ACK wrappers, and restored full conditional-record utility when a query explicitly asks about a plan or possible later change.
 
 ### Validation
 
