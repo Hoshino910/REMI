@@ -6,6 +6,7 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 *.jsonl
+!examples/benchmark/sample.jsonl
 .dsh-memory/
 upstream-deepseek-harness-*/
 .upstream-deepseek-harness/

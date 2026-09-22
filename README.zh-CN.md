@@ -18,7 +18,8 @@ REMI 不是独立 Web 应用，不替换 Harness Agent Loop，也不训练或微
 - 使用 Node.js 内置 `node:sqlite` 保存记忆、affect 提示、检索 trace 和关联边。
 - 在 `agent/inbox/claimed` 捕获当前查询，通过 `system-prompt/assemble` 注入一个有界的 runtime-context snapshot。
 - 使用 hashed bag-of-tokens cosine、lexical Jaccard、recency、importance、association 和 affect 对候选记忆进行排序。
-- 内容感知排序在仅用于打分的视图中去除通用回溯/输出模板，使用语料 IDF 加权词面证据，并降低提问和确认回复的权重。保留原始记忆文字，不训练模型。
+- 透明窗口卫生层会从普通事实窗口中排除当前轮自召回、问题、确认回复、不相关的显式相邻实体、重复陈述和未决的未来表达；用户明确询问计划或可能性时，条件性记录仍可召回。
+- 内容感知排序在仅用于打分的视图中去除通用回溯/输出模板，并使用语料 IDF 加权词面证据。保留原始记忆文字，不训练模型。
 - 对同一检索窗口内共同选中的记忆执行有界 Hebbian 强化。
 - 可选通过 DSH `ctx.llm.stream()` 获取结构化 affect JSON；不涉及模型训练，调用失败时回退到本地启发式。
 - 继承官方 `BasicCompactionEngine`，保留 Harness 压缩事务，只替换 checkpoint 摘要策略。
@@ -29,9 +30,9 @@ REMI 不是独立 Web 应用，不替换 Harness Agent Loop，也不训练或微
 
 ### 检索排序配置
 
-`contentAwareRetrievalEnabled` 默认 `true`；设为 `false` 可运行原 `raw-v0.2` 排序消融。`minLexicalCoverage` 默认 `0.15`，防止仅凭 recency、importance、affect 或哈希碰撞召回无关记录。提问仍可作为低权重背景，但在内容感知模式下不作为 Hebbian seed 或强化对象。陈述分类是中英文启发式，不等于验证事实真伪；相似实体和同义改写仍需测试。
+`contentAwareRetrievalEnabled` 默认 `true`；设为 `false` 可运行原 `raw-v0.2` 排序消融。`windowHygieneEnabled` 同样默认 `true`；只关闭该项即可运行不含新窗口准入规则的 `content-aware-v1` 消融。`minLexicalCoverage` 默认 `0.15`，防止仅凭 recency、importance、affect 或哈希碰撞召回无关记录。问题和确认回复仍保留在 SQLite 与 trace 中供审计，但不会进入 `window-hygiene-v2` 模型窗口或 Hebbian 强化。分类是中英文启发式，不等于验证事实真伪。
 
-Trace 新增 `scoringVersion`、`contentKind`、`utilityFactor`、`queryCoverage`。内容感知 embedding 从打分视图重新计算，旧原文和 raw embedding 无需破坏性迁移。Benchmark run 同样标记排序版本，跨版本比较时需保留该标记。
+Trace 包含 `scoringVersion`、`contentKind`、`utilityFactor`、`queryCoverage`、`focusOverlap`，以及 `current-query`、`conditional`、`focus-mismatch`、`redundant` 等明确的准入决策；只记录分数和哈希，不记录抽取出的 focus term。内容感知 embedding 从打分视图重新计算，旧原文和 raw embedding 无需破坏性迁移。Benchmark 新增 `no_window_hygiene` 消融，跨版本比较时需保留排序版本。
 
 ## 环境要求
 
@@ -121,6 +122,7 @@ SQLite 数据库包含原始会话文本，应至少使用与 Harness session st
 | 配置项 | 默认值 | 说明 |
 |---|---:|---|
 | `transparentWindowEnabled` | `true` | 是否在 prompt assembly 中加入 REMI runtime-context snapshot |
+| `windowHygieneEnabled` | `true` | 排除当前轮自召回、低价值/未决记录、显式相邻实体和重复陈述 |
 | `retrievalTokenBudget` | `1400` | 单个记忆窗口最终渲染后的 token 预算 |
 | `retrievalLimit` | `8` | 单个窗口最多包含的记忆条数 |
 | `minRetrievalScore` | `0.12` | 候选记忆的最低归一化总分 |
@@ -313,12 +315,13 @@ pnpm benchmark
 
 当前验证结果：
 
-- v0.3 alpha 开发分支的 9 个测试文件、48 项测试通过；
+- v0.3 alpha 开发分支的 9 个测试文件、51 项测试通过；
 - 所有 workspace package 均可 build 并通过 typecheck；
 - DSH Desktop 2.0.6 隔离 headless smoke test 返回 `REMI_LIVE_OK`；
 - smoke test 的记忆窗口使用 470 / 600 estimated tokens；
 - custom compaction 将 1766 estimated input tokens 压缩为 478 output tokens；
 - DSH Desktop 2.0.6 的全新数据库 current-truth 测试，在原生压缩和 Desktop 重启后仍能区分当前值、被替换值，以及具有相同旧值但不相关的事实。
+- 在 3 个用例的确定性 benchmark fixture 中，窗口卫生层与 `no_window_hygiene` 相比，hit rate 均为 1.0，mean selected memories 从 2 降到 1，mean estimated retrieval tokens 从 89 降到 74。该小样本只验证机制，不证明模型回答质量或生产成本收益。
 
 Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.llm.stream()` 接口；隔离 current-truth 测试使用 DSH 当前配置的真实模型链路。Provider 重试只计为 provider 行为，SQLite 生命周期状态和 REMI telemetry 单独核验。证据边界见 [v0.3 验证说明](docs/V0.3_CURRENT_TRUTH_TEST.md)。
 
@@ -327,6 +330,7 @@ Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.ll
 - 不自动回填插件安装前创建的 session。
 - 不默认提供跨 session 检索作用域。
 - Hashed embedding 是占位实现，跨语言和同义表达召回能力有限。
+- 显式相邻实体隔离目前对 ASCII 标识符形态最可靠；仅含中文的实体区分仍主要依赖词面证据。
 - Current-truth 目前只处理明确的确定性形式，并要求 subject/旧值证据唯一；尚无模型 resolver、合并 UI 或删除 API。
 - Current-truth 已完成一轮全新数据库在线验证，包括原生压缩、异常退出恢复和应用内正常重启。该证据仍只覆盖有限的英文协议，不代表已经完成多语言或长周期评估。
 - Hebbian 边表达检索共现，不代表事实或因果。

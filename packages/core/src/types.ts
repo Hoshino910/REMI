@@ -60,6 +60,7 @@ export interface MemoryRecord {
 }
 
 export type CandidateDecision = 'selected' | 'below-min-score' | 'below-min-relevance' | 'budget' | 'limit'
+  | 'current-query' | 'low-utility' | 'conditional' | 'focus-mismatch' | 'redundant'
   | 'superseded' | 'excluded' | 'deleted'
 
 export interface RetrievalCandidateTrace {
@@ -74,15 +75,16 @@ export interface RetrievalCandidateTrace {
   readonly finalScore: number
   readonly estimatedTokens: number
   readonly decision: CandidateDecision
-  readonly contentKind?: 'statement' | 'question' | 'acknowledgement'
+  readonly contentKind?: 'statement' | 'conditional' | 'question' | 'acknowledgement'
   readonly utilityFactor?: number
   readonly queryCoverage?: number
+  readonly focusOverlap?: number
   readonly lifecycleStatus?: MemoryLifecycleStatus
   readonly supersededByMemoryId?: string
 }
 
 export interface RetrievalTrace {
-  readonly scoringVersion?: 'raw-v0.2' | 'content-aware-v1'
+  readonly scoringVersion?: 'raw-v0.2' | 'content-aware-v1' | 'window-hygiene-v2'
   readonly traceId: string
   readonly sessionId: string
   readonly queryFingerprint: string
@@ -174,6 +176,7 @@ export interface MemorySupersessionInput {
 
 export interface MemoryRuntimeConfig {
   readonly contentAwareRetrievalEnabled?: boolean
+  readonly windowHygieneEnabled?: boolean
   readonly minLexicalCoverage?: number
   readonly embeddingDimensions?: number
   readonly recencyHalfLifeDays?: number

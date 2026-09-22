@@ -24,7 +24,16 @@ import type {
   RetrievalTrace,
   RetrievalWeights,
 } from './types.js'
-import { contentKind, lexicalRanker, retrievalView, utilityFactor, type MemoryContentKind } from './ranking.js'
+import {
+  contentKind,
+  focusOverlap,
+  lexicalRanker,
+  queryFocusTerms,
+  requestsConditionalContext,
+  retrievalView,
+  utilityFactor,
+  type MemoryContentKind,
+} from './ranking.js'
 
 const DAY_MS = 86_400_000
 const DEFAULT_WEIGHTS: RetrievalWeights = {
@@ -39,6 +48,8 @@ interface ScoredCandidate {
   readonly contentKind: MemoryContentKind
   readonly utilityFactor: number
   readonly queryCoverage: number
+  readonly focusOverlap: number
+  readonly currentQueryEcho: boolean
   readonly memory: MemoryRecord
   readonly embeddingScore: number
   readonly lexicalScore: number
@@ -55,6 +66,7 @@ interface ScoredCandidate {
 
 interface ResolvedConfig {
   readonly contentAwareRetrievalEnabled: boolean
+  readonly windowHygieneEnabled: boolean
   readonly minLexicalCoverage: number
   readonly embeddingDimensions: number
   readonly recencyHalfLifeDays: number
@@ -98,6 +110,7 @@ function resolveWeights(input: Partial<RetrievalWeights> | undefined): Retrieval
 function resolveConfig(config: MemoryRuntimeConfig): ResolvedConfig {
   return {
     contentAwareRetrievalEnabled: config.contentAwareRetrievalEnabled ?? true,
+    windowHygieneEnabled: config.windowHygieneEnabled ?? true,
     minLexicalCoverage: Math.max(0, Math.min(1, config.minLexicalCoverage ?? 0.15)),
     embeddingDimensions: config.embeddingDimensions ?? 192,
     recencyHalfLifeDays: config.recencyHalfLifeDays ?? 30,
@@ -260,6 +273,10 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     const includeSuperseded = input.includeSuperseded ?? requestsHistory(query)
     const traceId = `rt_${stableHash(`${input.sessionId}\u0000${startedAt}\u0000${query}`)}`
     const aware = this.config.contentAwareRetrievalEnabled
+    const hygiene = aware && this.config.windowHygieneEnabled
+    const allowConditional = requestsConditionalContext(query)
+    const focusTerms = hygiene ? queryFocusTerms(query) : []
+    const normalizedQuery = normalizeText(query).toLocaleLowerCase('en-US')
     const queryEmbedding = hashedEmbedding(aware ? retrievalView(query) : query, this.config.embeddingDimensions)
     const records = query.length === 0
       ? []
@@ -283,6 +300,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         contentKind: kind,
         utilityFactor: utility,
         queryCoverage: aware ? lexical[index]!.queryCoverage : 1,
+        focusOverlap: hygiene ? focusOverlap(memory.content, focusTerms) : 1,
+        currentQueryEcho: hygiene && normalizeText(memory.content).toLocaleLowerCase('en-US') === normalizedQuery,
         memory,
         embeddingScore,
         lexicalScore,
@@ -304,6 +323,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       const seedIds = [...candidates]
         .filter(candidate => candidate.memory.status === 'active')
         .filter(candidate => !aware || (candidate.contentKind === 'statement' && candidate.queryCoverage >= this.config.minLexicalCoverage))
+        .filter(candidate => !hygiene || (!candidate.currentQueryEcho && candidate.focusOverlap > 0))
         .sort((left, right) => right.finalScore - left.finalScore || right.memory.createdAt - left.memory.createdAt)
         .slice(0, this.config.hebbianSeedLimit)
         .map(candidate => candidate.memory.id)
@@ -324,6 +344,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         if (source.memory.status !== 'active' || target.memory.status !== 'active') continue
         if (aware && (source.contentKind !== 'statement' || target.contentKind !== 'statement'
           || source.queryCoverage < this.config.minLexicalCoverage || target.queryCoverage < this.config.minLexicalCoverage)) continue
+        if (hygiene && (source.currentQueryEcho || target.currentQueryEcho
+          || source.focusOverlap <= 0 || target.focusOverlap <= 0)) continue
         const decayed = decayedAssociation(
           edge.weight,
           edge.updatedAt,
@@ -349,6 +371,22 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     for (const candidate of candidates) {
       if (candidate.memory.status !== 'active'
         && !(includeSuperseded && candidate.memory.status === 'superseded')) continue
+      if (hygiene && candidate.currentQueryEcho) {
+        candidate.decision = 'current-query'
+        continue
+      }
+      if (hygiene && (candidate.contentKind === 'question' || candidate.contentKind === 'acknowledgement')) {
+        candidate.decision = 'low-utility'
+        continue
+      }
+      if (hygiene && candidate.contentKind === 'conditional' && !allowConditional) {
+        candidate.decision = 'conditional'
+        continue
+      }
+      if (hygiene && candidate.focusOverlap <= 0) {
+        candidate.decision = 'focus-mismatch'
+        continue
+      }
       if (aware && (candidate.queryCoverage <= 0 || candidate.queryCoverage < this.config.minLexicalCoverage)) {
         candidate.decision = 'below-min-relevance'
         continue
@@ -363,6 +401,13 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       }
       if (consumed + candidate.estimatedTokens > tokenBudget) {
         candidate.decision = 'budget'
+        continue
+      }
+      if (hygiene && selected.some(item => lexicalSimilarity(
+        retrievalView(item.memory.content),
+        retrievalView(candidate.memory.content),
+      ) >= 0.92)) {
+        candidate.decision = 'redundant'
         continue
       }
       candidate.decision = 'selected'
@@ -416,11 +461,12 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         contentKind: candidate.contentKind,
         utilityFactor: candidate.utilityFactor,
         queryCoverage: candidate.queryCoverage,
+        focusOverlap: candidate.focusOverlap,
         lifecycleStatus: candidate.memory.status,
         ...(candidate.memory.supersededByMemoryId === undefined ? {} : { supersededByMemoryId: candidate.memory.supersededByMemoryId }),
       }))
     const trace: RetrievalTrace = {
-      scoringVersion: aware ? 'content-aware-v1' : 'raw-v0.2',
+      scoringVersion: !aware ? 'raw-v0.2' : hygiene ? 'window-hygiene-v2' : 'content-aware-v1',
       traceId,
       sessionId: input.sessionId,
       queryFingerprint: stableHash(query),

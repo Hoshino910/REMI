@@ -18,7 +18,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release changes. v0.2.1 evidence remains in
 - Stores memories, affect hints, retrieval traces, and association edges with the built-in Node.js `node:sqlite` module.
 - Captures the current query at `agent/inbox/claimed` and injects one bounded runtime-context snapshot through `system-prompt/assemble`.
 - Ranks candidates with hashed bag-of-tokens cosine, lexical Jaccard, recency, importance, association, and affect signals.
-- Content-aware ranking removes common recall/output boilerplate from a scoring-only view, uses corpus-IDF weighted lexical evidence, and downweights questions/acknowledgements. Original memory text is preserved; no model is trained.
+- Window hygiene removes the current-turn echo, questions, acknowledgements, irrelevant explicit sibling entities, duplicate statements, and non-assertive future language from ordinary factual windows. Conditional plans remain retrievable when the query explicitly asks for them.
+- Content-aware ranking removes common recall/output boilerplate from a scoring-only view and uses corpus-IDF weighted lexical evidence. Original memory text is preserved; no model is trained.
 - Reinforces bounded Hebbian edges between memories selected in the same retrieval window.
 - Optionally requests structured affect JSON through DSH `ctx.llm.stream()`; no model training is involved, and failures fall back to a local heuristic.
 - Extends the official `BasicCompactionEngine`, preserving the Harness compaction transaction while replacing only the checkpoint summarizer.
@@ -29,9 +30,9 @@ See [CHANGELOG.md](CHANGELOG.md) for release changes. v0.2.1 evidence remains in
 
 ### Retrieval ranking controls
 
-`contentAwareRetrievalEnabled` defaults to `true`; set it to `false` for the original `raw-v0.2` scoring ablation. `minLexicalCoverage` defaults to `0.15` and prevents recency, importance, affect or hash collisions alone from admitting unrelated candidates. Questions remain available as lower-utility background, but are not Hebbian seeds or reinforcement targets in content-aware mode. Statement classification is a bilingual heuristic, not verification that a claim is true; similar entities and paraphrases still require validation.
+`contentAwareRetrievalEnabled` defaults to `true`; set it to `false` for the original `raw-v0.2` scoring ablation. `windowHygieneEnabled` also defaults to `true`; disable only this option for the `content-aware-v1` ablation without the new window admission rules. `minLexicalCoverage` defaults to `0.15` and prevents recency, importance, affect or hash collisions alone from admitting unrelated candidates. Questions and acknowledgements remain in SQLite and traces for audit, but do not enter a `window-hygiene-v2` model window or Hebbian reinforcement. Classification is a bilingual heuristic, not verification that a claim is true.
 
-Traces include `scoringVersion`, `contentKind`, `utilityFactor`, and `queryCoverage`. Content-aware embeddings are recomputed from the scoring view, so existing raw embeddings and records require no destructive migration. The same scoring version is included in benchmark runs; do not compare reports from different versions without labeling them.
+Traces include `scoringVersion`, `contentKind`, `utilityFactor`, `queryCoverage`, `focusOverlap`, and an explicit admission decision such as `current-query`, `conditional`, `focus-mismatch`, or `redundant`. They contain scores and hashes, not the extracted focus terms. Content-aware embeddings are recomputed from the scoring view, so existing raw embeddings and records require no destructive migration. The benchmark includes a `no_window_hygiene` ablation; do not compare reports from different scoring versions without labeling them.
 
 ## Requirements
 
@@ -121,6 +122,7 @@ The SQLite database contains raw conversation text. Protect it at least as stric
 | Option | Default | Description |
 |---|---:|---|
 | `transparentWindowEnabled` | `true` | Add a REMI runtime-context snapshot during prompt assembly |
+| `windowHygieneEnabled` | `true` | Exclude current-turn echoes, low-utility/non-assertive records, explicit sibling entities, and duplicates |
 | `retrievalTokenBudget` | `1400` | Final rendered token budget for one memory window |
 | `retrievalLimit` | `8` | Maximum memories in one window |
 | `minRetrievalScore` | `0.12` | Minimum normalized candidate score |
@@ -313,12 +315,13 @@ pnpm benchmark
 
 Current verification results:
 
-- 9 test files and 48 tests pass on the v0.3 alpha development branch;
+- 9 test files and 51 tests pass on the v0.3 alpha development branch;
 - every workspace package builds and type-checks;
 - an isolated DSH Desktop 2.0.6 headless smoke test returned `REMI_LIVE_OK`;
 - the smoke-test memory window used 470 of 600 estimated tokens;
 - custom compaction reduced 1,766 estimated input tokens to 478 output tokens;
 - a clean-database DSH Desktop 2.0.6 current-truth run preserved the active value, the superseded value, and an unrelated same-valued fact across native compaction and a Desktop restart.
+- in the three-case deterministic benchmark fixture, window hygiene kept hit rate at 1.0 while reducing mean selected memories from 2 to 1 and mean estimated retrieval tokens from 89 to 74 versus `no_window_hygiene`. This fixture verifies mechanics, not model-answer quality or production cost savings.
 
 The headless smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. The isolated current-truth run used the configured live DSH model path. Provider retries were counted as provider behavior; SQLite lifecycle state and REMI telemetry were checked independently. See [the v0.3 validation note](docs/V0.3_CURRENT_TRUTH_TEST.md) for the exact boundary of the evidence.
 
@@ -327,6 +330,7 @@ The headless smoke test used a deterministic local provider to verify lifecycle 
 - No automatic backfill for sessions created before the plugin was installed.
 - No default cross-session retrieval scope.
 - Hashed embeddings are placeholders with limited cross-language and synonym recall.
+- Explicit sibling-entity isolation is currently strongest for ASCII identifier-like terms; CJK-only entity separation still depends mainly on lexical evidence.
 - Current-truth matching is limited to explicit deterministic forms and exact subject/value evidence; there is no model-based resolver, merge UI, or deletion API.
 - Current-truth has one clean-database live validation run, including native compaction, crash recovery, and an app-controlled Desktop restart. This remains a bounded English protocol, not a broad multilingual or long-duration evaluation.
 - Hebbian edges express retrieval co-occurrence, not truth or causality.

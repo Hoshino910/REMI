@@ -101,7 +101,7 @@ describe('SelectiveMemoryRuntime', () => {
     }
     const result = await runtime.retrieve({ sessionId: 'ranking', query, tokenBudget: 800, limit: 1, now: 10 })
     expect(result.memories[0]?.memory.content).toContain(fact.normalize('NFKC').split('.')[0])
-    expect(result.trace.scoringVersion).toBe('content-aware-v1')
+    expect(result.trace.scoringVersion).toBe('window-hygiene-v2')
     expect(result.trace.candidates.some(c => c.contentKind === 'question' && c.utilityFactor === 0.2)).toBe(true)
   })
 
@@ -113,15 +113,99 @@ describe('SelectiveMemoryRuntime', () => {
     expect(result.trace.candidates[0]?.decision).toBe('below-min-relevance')
   })
 
-  it('does not reinforce questions even if explicitly selected as contextual background', async () => {
+  it('keeps questions out of the transparent window and Hebbian reinforcement', async () => {
     const store = new TestStore()
     const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
     for (const [seq, content] of ['What is the Cedar database port?', 'Please recall the Cedar database port.'].entries()) {
       await runtime.ingest({ sessionId: 'question-graph', sourceEventSeq: seq, role: 'user', sourceType: 'user/message', content, timestamp: seq + 1 })
     }
     const result = await runtime.retrieve({ sessionId: 'question-graph', query: 'Cedar database port', tokenBudget: 800, limit: 2, now: 10 })
-    expect(result.memories).toHaveLength(2)
+    expect(result.memories).toHaveLength(0)
+    expect(result.trace.candidates.every(candidate => candidate.decision === 'low-utility')).toBe(true)
     expect(result.trace.reinforcedEdges).toBe(0)
+  })
+
+  it('removes current-turn echoes, acknowledgements, conditional noise and explicit sibling entities', async () => {
+    const store = new TestStore()
+    const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
+    const sessionId = 'window-hygiene'
+    const query = 'What is the current Cedar service port? Reply with only the number.'
+    const memories = [
+      'The Cedar service port is 8247.',
+      'The Maple service port is 6389.',
+      'We may change the Cedar service port later. Reply only ACK.',
+      'ACK',
+      'What was the Cedar service port?',
+      query,
+    ]
+    for (const [index, content] of memories.entries()) {
+      await runtime.ingest({
+        sessionId, sourceEventSeq: index + 1, role: index === 3 ? 'assistant' : 'user',
+        sourceType: index === 3 ? 'assistant/message' : 'user/message', content, timestamp: index + 1,
+      })
+    }
+
+    const result = await runtime.retrieve({ sessionId, query, tokenBudget: 800, limit: 8, now: 10 })
+
+    expect(result.memories.map(item => item.memory.content)).toEqual(['The Cedar service port is 8247.'])
+    expect(result.trace.scoringVersion).toBe('window-hygiene-v2')
+    const decisionFor = (content: string) => {
+      const record = [...store.records.values()].find(item => item.content === content)
+      return result.trace.candidates.find(item => item.memoryId === record?.id)?.decision
+    }
+    expect(decisionFor('The Maple service port is 6389.')).toBe('focus-mismatch')
+    expect(decisionFor('We may change the Cedar service port later. Reply only ACK.')).toBe('conditional')
+    expect(decisionFor('ACK')).toBe('low-utility')
+    expect(decisionFor('What was the Cedar service port?')).toBe('low-utility')
+    expect(decisionFor(query)).toBe('current-query')
+    expect(result.trace.reinforcedEdges).toBe(0)
+
+    const ablation = new SelectiveMemoryRuntime(store, {
+      minScore: 0,
+      windowHygieneEnabled: false,
+    })
+    const withoutHygiene = await ablation.retrieve({ sessionId, query, tokenBudget: 800, limit: 8, now: 11 })
+    expect(withoutHygiene.trace.scoringVersion).toBe('content-aware-v1')
+    expect(withoutHygiene.memories.length).toBeGreaterThan(result.memories.length)
+  })
+
+  it('recalls conditional plans only when the query explicitly asks for them', async () => {
+    const runtime = new SelectiveMemoryRuntime(new TestStore(), { minScore: 0 })
+    await runtime.ingest({
+      sessionId: 'future-plan', sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
+      content: 'We may change the Cedar service port later.', timestamp: 1,
+    })
+
+    const current = await runtime.retrieve({
+      sessionId: 'future-plan', query: 'What is the current Cedar service port?', tokenBudget: 400, now: 2,
+    })
+    expect(current.memories).toHaveLength(0)
+    expect(current.trace.candidates[0]?.decision).toBe('conditional')
+
+    const planned = await runtime.retrieve({
+      sessionId: 'future-plan', query: 'What Cedar service port change may happen later?', tokenBudget: 400, now: 3,
+    })
+    expect(planned.memories.map(item => item.memory.content)).toEqual([
+      'We may change the Cedar service port later.',
+    ])
+  })
+
+  it('deduplicates repeated statements while retaining the highest-ranked source', async () => {
+    const store = new TestStore()
+    const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
+    for (const [index, role] of (['user', 'assistant'] as const).entries()) {
+      await runtime.ingest({
+        sessionId: 'duplicate-fact', sourceEventSeq: index + 1, role,
+        sourceType: role === 'user' ? 'user/message' : 'assistant/message',
+        content: 'The Cedar service port is 8247.', timestamp: index + 1,
+      })
+    }
+
+    const result = await runtime.retrieve({
+      sessionId: 'duplicate-fact', query: 'What is the current Cedar service port?', tokenBudget: 400, limit: 4, now: 3,
+    })
+    expect(result.memories).toHaveLength(1)
+    expect(result.trace.candidates.filter(item => item.decision === 'redundant')).toHaveLength(1)
   })
 
   it('atomically supersedes current truth and exposes history only for a history query', async () => {

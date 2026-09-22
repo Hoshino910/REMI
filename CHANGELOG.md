@@ -9,10 +9,13 @@
 - Added conservative deterministic Chinese/English correction detection behind `currentTruthEnabled` (default `false`).
 - Added current/history retrieval behavior and `memory/correction` telemetry without raw fact values.
 - Added a frozen current-truth fixture and regression tests for ambiguity, rollback, history access, and inactive-memory graph isolation.
+- Added `window-hygiene-v2` admission rules for current-turn echoes, questions/acknowledgements, conditional statements, explicit entity mismatches, and repeated statements.
+- Added privacy-preserving `focusOverlap` and admission decisions to retrieval traces plus a `no_window_hygiene` benchmark ablation.
 
 ### Validation
 
-- Build and typecheck pass; 9 test files and 48 tests pass locally.
+- Build and typecheck pass; 9 test files and 51 tests pass locally.
+- The three-case deterministic benchmark fixture retained a 1.0 hit rate while reducing mean selected memories from 2 to 1 and mean estimated retrieval tokens from 89 to 74 versus `no_window_hygiene`; this is a mechanics check, not a production-quality or cost claim.
 - A clean-database DSH Desktop 2.0.6 run passed deterministic supersession, same-valued-neighbor isolation, current/history retrieval, ambiguity fail-safe, native compaction, and crash-restart persistence checks.
 - A subsequent app-controlled Desktop restart reopened the same session and SQLite state; current and historical answers remained correct.
 

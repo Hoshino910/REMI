@@ -34,7 +34,7 @@ describe('runBenchmark', () => {
       now: 3,
     }])
     expect(report.runs.map(run => run.ablation)).toEqual([
-      'full', 'similarity_only', 'no_recency', 'no_importance',
+      'full', 'no_window_hygiene', 'similarity_only', 'no_recency', 'no_importance',
     ])
     expect(report.runs[0]?.hitRateAtK).toBe(1)
   })

@@ -40,6 +40,7 @@ export const STABLE_MEMORY_POLICY = [
 
 export interface Config {
   contentAwareRetrievalEnabled?: boolean
+  windowHygieneEnabled?: boolean
   minLexicalCoverage?: number
   databasePath?: string
   telemetryPath?: string
@@ -75,6 +76,7 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   contentAwareRetrievalEnabled: z.boolean().default(true),
+  windowHygieneEnabled: z.boolean().default(true),
   minLexicalCoverage: z.number().min(0).max(1).default(0.15),
   databasePath: z.string().default('.dsh-memory/memory.sqlite'),
   telemetryPath: z.string().default('.dsh-memory/telemetry.jsonl'),
@@ -133,6 +135,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
   constructor(ctx: Context, config: Config = {}) {
     const resolved: Required<Config> = {
       contentAwareRetrievalEnabled: config.contentAwareRetrievalEnabled ?? true,
+      windowHygieneEnabled: config.windowHygieneEnabled ?? true,
       minLexicalCoverage: config.minLexicalCoverage ?? 0.15,
       databasePath: config.databasePath ?? '.dsh-memory/memory.sqlite',
       telemetryPath: config.telemetryPath ?? '.dsh-memory/telemetry.jsonl',
@@ -181,6 +184,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
     })
     const runtimeConfig: MemoryRuntimeConfig = {
       contentAwareRetrievalEnabled: resolved.contentAwareRetrievalEnabled,
+      windowHygieneEnabled: resolved.windowHygieneEnabled,
       minLexicalCoverage: resolved.minLexicalCoverage,
       recencyHalfLifeDays: resolved.recencyHalfLifeDays,
       minScore: resolved.minRetrievalScore,

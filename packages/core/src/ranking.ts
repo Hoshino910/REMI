@@ -1,6 +1,15 @@
 import { normalizeText, tokenize } from './similarity.js'
 
-export type MemoryContentKind = 'statement' | 'question' | 'acknowledgement'
+export type MemoryContentKind = 'statement' | 'conditional' | 'question' | 'acknowledgement'
+
+const CONDITIONAL_LANGUAGE = /\b(?:may|might|perhaps|possibly|later|consider(?:ing)?|plan(?:ning)?\s+to|intend(?:ing)?\s+to)\b|也许|可能|或许|以后|稍后|考虑|计划|打算/iu
+
+const FOCUS_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'current', 'database', 'do', 'for', 'history', 'how', 'is',
+  'json', 'me', 'memory', 'now', 'of', 'only', 'original', 'please', 'port', 'previous',
+  'project', 'reply', 'return', 'service', 'store', 'tell', 'the', 'value', 'was',
+  'what', 'when', 'where', 'which', 'with',
+])
 
 /** Lightweight bilingual heuristics, not fact extraction or a trained model.
  * Remove output instructions without changing the durable original text.
@@ -19,16 +28,42 @@ export function retrievalView(content: string): string {
 export function contentKind(content: string): MemoryContentKind {
   const value = normalizeText(content)
   if (/^(?:约定|包装要求|发货要求|素材\d+)?已收到[。.!]?$/u.test(value)
-    || /^(?:ok|okay|thanks|thank you|received|acknowledged|got it)[.!]?$/iu.test(value)) return 'acknowledgement'
+    || /^(?:ack|ok|okay|thanks|thank you|received|acknowledged|got it)[.!]?$/iu.test(value)) return 'acknowledgement'
   // Examine the meaningful first clause, not a trailing "only reply" request.
   const primary = value.split(/只(?:回复|输出)|仅(?:回复|输出)|\bonly (?:reply|output|return)\b/iu)[0] ?? value
   if (/^(?:请)?(?:回溯|回忆|回顾|告诉我|查询)|^(?:我们|之前|最早).*(?:什么|哪个|是多少|在哪里)|^(?:please\s+)?(?:recall|retrieve|tell me|what|which|where|when|how)\b/iu.test(primary)
     || /[?？]\s*$/u.test(primary)) return 'question'
+  if (CONDITIONAL_LANGUAGE.test(primary)) return 'conditional'
   return 'statement'
 }
 
 export function utilityFactor(kind: MemoryContentKind): number {
-  return kind === 'question' ? 0.2 : kind === 'acknowledgement' ? 0.08 : 1
+  return kind === 'question' ? 0.2 : kind === 'acknowledgement' ? 0.08 : kind === 'conditional' ? 0.15 : 1
+}
+
+export function requestsConditionalContext(query: string): boolean {
+  return CONDITIONAL_LANGUAGE.test(normalizeText(query))
+}
+
+/**
+ * Extract explicit ASCII identifiers without exposing them in telemetry.
+ * Capitalized/mixed-case names and symbol-bearing IDs are useful for keeping
+ * nearby entities such as Cedar and Maple out of each other's windows.
+ */
+export function queryFocusTerms(query: string): readonly string[] {
+  const matches = normalizeText(query).match(/[A-Za-z][A-Za-z0-9_.:/@\\-]*/g) ?? []
+  return [...new Set(matches
+    .filter(token => token.length >= 3)
+    .filter(token => !FOCUS_STOP_WORDS.has(token.toLocaleLowerCase('en-US')))
+    .filter(token => /[A-Z]/.test(token) || /[0-9_.:/@\\-]/.test(token))
+    .map(token => token.toLocaleLowerCase('en-US')))]
+}
+
+export function focusOverlap(content: string, focusTerms: readonly string[]): number {
+  if (focusTerms.length === 0) return 1
+  const view = retrievalView(content).toLocaleLowerCase('en-US')
+  const hits = focusTerms.filter(term => view.includes(term)).length
+  return hits / focusTerms.length
 }
 
 function terms(content: string): Set<string> {
