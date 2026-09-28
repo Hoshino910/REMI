@@ -4,6 +4,7 @@ import {
   SelectiveMemoryRuntime,
   type AssociationEdge,
   type AssociationReinforcement,
+  type AssociationReinforcementResult,
   type MemoryRecord,
   type MemoryStore,
   type MemorySupersession,
@@ -57,7 +58,7 @@ class TestStore implements MemoryStore {
       .slice(0, limit)
   }
 
-  async reinforceAssociations(input: AssociationReinforcement): Promise<number> {
+  async reinforceAssociations(input: AssociationReinforcement): Promise<AssociationReinforcementResult> {
     const ids = [...new Set(input.memoryIds)].sort()
     let count = 0
     for (let left = 0; left < ids.length; left += 1) {
@@ -79,7 +80,16 @@ class TestStore implements MemoryStore {
         count += 1
       }
     }
-    return count
+    const sessionEdges = [...this.edges.entries()]
+      .filter(([, edge]) => edge.sessionId === input.sessionId)
+      .sort(([, left], [, right]) => right.weight - left.weight || right.updatedAt - left.updatedAt)
+    const removed = sessionEdges.slice(input.maxEdgesPerSession)
+    for (const [key] of removed) this.edges.delete(key)
+    return {
+      reinforcedEdges: count,
+      prunedEdges: removed.length,
+      storedEdges: sessionEdges.length - removed.length,
+    }
   }
 
   async stats() {
@@ -313,13 +323,41 @@ describe('SelectiveMemoryRuntime', () => {
       sessionId: 'graph', query: 'SQLite project memory', tokenBudget: 500, limit: 2, now,
     })
     expect(first.trace.reinforcedEdges).toBe(1)
+    expect(first.trace.reinforcementEligibleMemories).toBe(2)
+    expect(first.trace.reinforcementPairsProposed).toBe(1)
+    expect(first.trace.associationEdgesStored).toBe(1)
     expect(store.edges.size).toBe(1)
 
     const second = await runtime.retrieve({
       sessionId: 'graph', query: 'SQLite database', tokenBudget: 500, limit: 2, now: now + 1,
     })
     expect(second.trace.associationEdgesRead).toBe(1)
+    expect(second.trace.associationSeedCount).toBe(2)
+    expect(second.trace.associationEdgesApplied).toBe(1)
+    expect(second.trace.associationBoostedCandidates).toBeGreaterThan(0)
     expect(second.trace.candidates.some(candidate => candidate.associationScore > 0)).toBe(true)
+  })
+
+  it('never reinforces conditional memories even when a future-plan query admits them', async () => {
+    const store = new TestStore()
+    const runtime = new SelectiveMemoryRuntime(store, { minScore: 0 })
+    await runtime.ingest({
+      sessionId: 'graph-conditional', sourceEventSeq: 1, role: 'user', sourceType: 'user/message',
+      content: 'Cedar deployment region is Shanghai.', timestamp: 1,
+    })
+    await runtime.ingest({
+      sessionId: 'graph-conditional', sourceEventSeq: 2, role: 'user', sourceType: 'user/message',
+      content: 'We may later move Cedar deployment to Hangzhou.', timestamp: 2,
+    })
+    const result = await runtime.retrieve({
+      sessionId: 'graph-conditional', query: 'What may happen later to Cedar deployment?',
+      tokenBudget: 500, limit: 2, now: 3,
+    })
+    expect(result.memories.some(item => item.memory.content.includes('may later'))).toBe(true)
+    expect(result.trace.reinforcementEligibleMemories).toBe(1)
+    expect(result.trace.reinforcementPairsProposed).toBe(0)
+    expect(result.trace.reinforcedEdges).toBe(0)
+    expect(store.edges.size).toBe(0)
   })
 
   it('derives bounded heuristic affect without a trained model', () => {

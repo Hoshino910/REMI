@@ -155,8 +155,9 @@ Superseded records remain in SQLite for audit. They are excluded from ordinary r
 | `hebbianLearningRate` | `0.08` | Reinforcement coefficient for one co-activation |
 | `hebbianMaxWeight` | `1` | Maximum stored edge weight |
 | `hebbianHalfLifeDays` | `45` | Exponential edge-weight half-life |
+| `hebbianMaxEdgesPerSession` | `2048` | Maximum stored edges per session; weaker and older edges are pruned first |
 
-An edge means that two memories were selected together. It does not establish factual correctness, causality, or a user preference, and it does not train a neural network.
+An edge means that two active statement memories were selected together. Graph expansion cannot bypass the lifecycle, statement-kind, lexical-coverage, or focus gates. It only reorders otherwise eligible candidates. An edge does not establish factual correctness, causality, or a user preference, and it does not train a neural network.
 
 ### Affect analysis
 
@@ -269,7 +270,7 @@ JSONL event types:
 - `memory/compaction`
 - `plugin/error`
 
-JSONL telemetry contains a stable query fingerprint, not the raw query or memory text. SQLite retrieval traces include component scores, selection decisions, token counts, association-edge counts, query affect metadata, and timing.
+JSONL telemetry contains a stable query fingerprint, not the raw query or memory text. SQLite retrieval traces include component scores, selection decisions, token counts, query affect metadata, timing, and privacy-preserving graph counters: seeds, edges read/applied/pruned/stored, boosted candidates, reinforcement-eligible memories, and proposed/reinforced pairs.
 
 ## Benchmark
 
@@ -285,7 +286,13 @@ Run a custom JSONL dataset:
 node packages/benchmark/dist/cli.js C:/path/to/dataset.jsonl
 ```
 
-See [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl) for the input shape. The current runner exposes `full`, `similarity_only`, `no_recency`, and `no_importance`. Its `hitRateAtK` is a string-evidence pipeline check, not a complete quality evaluation.
+Exercise graph priming and the `no_hebbian` control:
+
+```powershell
+pnpm benchmark:graph
+```
+
+See [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl) for the basic input shape and [examples/benchmark/graph-ablation.jsonl](examples/benchmark/graph-ablation.jsonl) for a primed graph case. Cases may include `primingQueries` to build graph state before the measured query. The runner exposes `full`, `no_window_hygiene`, `no_hebbian`, `similarity_only`, `no_recency`, and `no_importance`, and reports graph activity separately. Its `hitRateAtK` is a string-evidence pipeline check, not a complete quality evaluation.
 
 ## Repository layout
 

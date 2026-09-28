@@ -35,6 +35,7 @@
         hebbianLearningRate: 0.08
         hebbianMaxWeight: 1
         hebbianHalfLifeDays: 45
+        hebbianMaxEdgesPerSession: 2048
         # Optional: uses the currently routed DSH model unless both fields are set.
         # This is an inference-only JSON classification call; it never trains a model.
         emotionAnalysisEnabled: false

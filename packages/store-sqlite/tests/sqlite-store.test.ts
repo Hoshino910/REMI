@@ -167,10 +167,42 @@ describe('SqliteMemoryStore', () => {
     })
 
     expect(result.trace.reinforcedEdges).toBe(1)
+    expect(result.trace.associationEdgesPruned).toBe(0)
+    expect(result.trace.associationEdgesStored).toBe(1)
     await expect(store.stats()).resolves.toEqual({ memories: 2, traces: 1, associations: 1 })
     const ids = result.memories.map(item => item.memory.id)
     const edges = await store.listAssociations('edges', ids, 10)
     expect(edges).toHaveLength(1)
     expect(edges[0]?.weight).toBeGreaterThan(0)
+  })
+
+  it('prunes each session graph to the configured edge capacity', async () => {
+    const store = new SqliteMemoryStore({ filename: ':memory:' })
+    stores.push(store)
+    const runtime = new SelectiveMemoryRuntime(store, {
+      minScore: 0,
+      hebbianLearningRate: 0.4,
+      hebbianMaxEdgesPerSession: 2,
+    })
+    for (const [index, content] of [
+      'Cedar window stores the deployment region.',
+      'Cedar window stores the database port.',
+      'Cedar window stores the release channel.',
+    ].entries()) {
+      await runtime.ingest({
+        sessionId: 'edge-cap', sourceEventSeq: index + 1, role: 'user',
+        sourceType: 'user/message', content, timestamp: index + 1,
+      })
+    }
+    const result = await runtime.retrieve({
+      sessionId: 'edge-cap', query: 'Cedar window stores deployment database release details',
+      tokenBudget: 800, limit: 3, now: 10,
+    })
+
+    expect(result.trace.reinforcementPairsProposed).toBe(3)
+    expect(result.trace.reinforcedEdges).toBe(3)
+    expect(result.trace.associationEdgesPruned).toBe(1)
+    expect(result.trace.associationEdgesStored).toBe(2)
+    await expect(store.stats()).resolves.toEqual({ memories: 3, traces: 1, associations: 2 })
   })
 })

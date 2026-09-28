@@ -22,5 +22,6 @@
         associationWeight: 0.15
         emotionWeight: 0.05
         hebbianEnabled: true
+        hebbianMaxEdgesPerSession: 2048
         emotionAnalysisEnabled: false
         compactionSummaryTokenBudget: 900

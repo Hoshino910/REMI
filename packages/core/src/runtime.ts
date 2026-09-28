@@ -81,6 +81,7 @@ interface ResolvedConfig {
   readonly hebbianLearningRate: number
   readonly hebbianMaxWeight: number
   readonly hebbianHalfLifeDays: number
+  readonly hebbianMaxEdgesPerSession: number
 }
 
 function clamp01(value: number): number {
@@ -125,6 +126,7 @@ function resolveConfig(config: MemoryRuntimeConfig): ResolvedConfig {
     hebbianLearningRate: config.hebbianLearningRate ?? 0.08,
     hebbianMaxWeight: config.hebbianMaxWeight ?? 1,
     hebbianHalfLifeDays: config.hebbianHalfLifeDays ?? 45,
+    hebbianMaxEdgesPerSession: Math.max(1, Math.floor(config.hebbianMaxEdgesPerSession ?? 2_048)),
   }
 }
 
@@ -321,7 +323,9 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       }
     })
 
+    let associationSeedCount = 0
     let associationEdgesRead = 0
+    let associationEdgesApplied = 0
     if (this.config.hebbianEnabled && this.store.listAssociations !== undefined && candidates.length > 0) {
       const seedIds = [...candidates]
         .filter(candidate => candidate.memory.status === 'active')
@@ -331,6 +335,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         .slice(0, this.config.hebbianSeedLimit)
         .map(candidate => candidate.memory.id)
       const seedSet = new Set(seedIds)
+      associationSeedCount = seedIds.length
       const byId = new Map(candidates.map(candidate => [candidate.memory.id, candidate] as const))
       const edges = await this.store.listAssociations(
         input.sessionId,
@@ -349,6 +354,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
           || source.queryCoverage < this.config.minLexicalCoverage || target.queryCoverage < this.config.minLexicalCoverage)) continue
         if (hygiene && (source.currentQueryEcho || target.currentQueryEcho
           || source.focusOverlap <= 0 || target.focusOverlap <= 0)) continue
+        if (!sourceIsSeed && !targetIsSeed) continue
+        associationEdgesApplied += 1
         const decayed = decayedAssociation(
           edge.weight,
           edge.updatedAt,
@@ -430,14 +437,20 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     }
     await this.store.touch(selected.map(item => item.memory.id), now)
     let reinforcedEdges = 0
+    let associationEdgesPruned = 0
+    let associationEdgesStored = 0
     const reinforcementItems = selected.filter(item => item.memory.status === 'active'
       && (!aware || item.contentKind === 'statement'))
+    const reinforcementPairsProposed = this.config.hebbianEnabled
+      && this.store.reinforceAssociations !== undefined
+      ? reinforcementItems.length * Math.max(0, reinforcementItems.length - 1) / 2
+      : 0
     if (
       this.config.hebbianEnabled
       && reinforcementItems.length > 1
       && this.store.reinforceAssociations !== undefined
     ) {
-      reinforcedEdges = await this.store.reinforceAssociations({
+      const reinforcement = await this.store.reinforceAssociations({
         sessionId: input.sessionId,
         memoryIds: reinforcementItems.map(item => item.memory.id),
         activations: Object.fromEntries(reinforcementItems.map(item => [item.memory.id, clamp01(item.finalScore)])),
@@ -445,7 +458,15 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         learningRate: this.config.hebbianLearningRate,
         maxWeight: this.config.hebbianMaxWeight,
         halfLifeDays: this.config.hebbianHalfLifeDays,
+        maxEdgesPerSession: this.config.hebbianMaxEdgesPerSession,
       })
+      if (typeof reinforcement === 'number') {
+        reinforcedEdges = reinforcement
+      } else {
+        reinforcedEdges = reinforcement.reinforcedEdges
+        associationEdgesPruned = reinforcement.prunedEdges
+        associationEdgesStored = reinforcement.storedEdges
+      }
     }
     const traceCandidates: RetrievalCandidateTrace[] = candidates
       .slice(0, this.config.traceCandidateLimit)
@@ -470,6 +491,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       }))
     const trace: RetrievalTrace = {
       scoringVersion: !aware ? 'raw-v0.2' : hygiene ? 'window-hygiene-v2' : 'content-aware-v1',
+      graphPolicyVersion: 'bounded-coactivation-v1',
       traceId,
       sessionId: input.sessionId,
       queryFingerprint: stableHash(query),
@@ -480,8 +502,15 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       estimatedTokens,
       candidateCount: candidates.length,
       selectedCount: selected.length,
+      associationSeedCount,
       associationEdgesRead,
+      associationEdgesApplied,
+      associationBoostedCandidates: candidates.filter(candidate => candidate.associationScore > 0).length,
+      reinforcementEligibleMemories: reinforcementItems.length,
+      reinforcementPairsProposed,
       reinforcedEdges,
+      associationEdgesPruned,
+      associationEdgesStored,
       ...(input.emotion === undefined ? {} : { queryEmotion: input.emotion }),
       weights: this.config.weights,
       candidates: traceCandidates,

@@ -85,6 +85,7 @@ export interface RetrievalCandidateTrace {
 
 export interface RetrievalTrace {
   readonly scoringVersion?: 'raw-v0.2' | 'content-aware-v1' | 'window-hygiene-v2'
+  readonly graphPolicyVersion?: 'bounded-coactivation-v1'
   readonly traceId: string
   readonly sessionId: string
   readonly queryFingerprint: string
@@ -95,8 +96,15 @@ export interface RetrievalTrace {
   readonly estimatedTokens: number
   readonly candidateCount: number
   readonly selectedCount: number
+  readonly associationSeedCount: number
   readonly associationEdgesRead: number
+  readonly associationEdgesApplied: number
+  readonly associationBoostedCandidates: number
+  readonly reinforcementEligibleMemories: number
+  readonly reinforcementPairsProposed: number
   readonly reinforcedEdges: number
+  readonly associationEdgesPruned: number
+  readonly associationEdgesStored: number
   readonly queryEmotion?: EmotionVector
   readonly weights: RetrievalWeights
   readonly candidates: readonly RetrievalCandidateTrace[]
@@ -152,6 +160,13 @@ export interface AssociationReinforcement {
   readonly learningRate: number
   readonly maxWeight: number
   readonly halfLifeDays: number
+  readonly maxEdgesPerSession: number
+}
+
+export interface AssociationReinforcementResult {
+  readonly reinforcedEdges: number
+  readonly prunedEdges: number
+  readonly storedEdges: number
 }
 
 export interface MemorySupersession {
@@ -191,6 +206,7 @@ export interface MemoryRuntimeConfig {
   readonly hebbianLearningRate?: number
   readonly hebbianMaxWeight?: number
   readonly hebbianHalfLifeDays?: number
+  readonly hebbianMaxEdgesPerSession?: number
 }
 
 export interface CompactionEntry {
@@ -242,7 +258,7 @@ export interface MemoryStore {
     memoryIds: readonly string[],
     limit: number,
   ): Promise<readonly AssociationEdge[]>
-  reinforceAssociations?(input: AssociationReinforcement): Promise<number>
+  reinforceAssociations?(input: AssociationReinforcement): Promise<number | AssociationReinforcementResult>
   /** Atomically inserts the replacement and marks the active target superseded. */
   supersede?(input: MemorySupersession): Promise<boolean>
   stats(): Promise<StoreStats>

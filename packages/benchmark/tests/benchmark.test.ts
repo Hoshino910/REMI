@@ -24,18 +24,21 @@ describe('runBenchmark', () => {
     const report = await runBenchmark([{
       id: 'one',
       sessionId: 'bench-one',
-      query: 'Which store is used?',
+      query: 'Which SQLite store is used?',
       tokenBudget: 200,
       relevantContentIncludes: ['SQLite'],
+      primingQueries: [{ query: 'SQLite store WAL checkpoints', limit: 2, now: 3 }],
       memories: [
         { role: 'user', sourceType: 'user/message', content: 'Use SQLite for storage.', timestamp: 1 },
-        { role: 'assistant', sourceType: 'assistant/message', content: 'The sky is blue.', timestamp: 2 },
+        { role: 'assistant', sourceType: 'assistant/message', content: 'Use SQLite WAL store for checkpoints.', timestamp: 2 },
       ],
-      now: 3,
+      now: 4,
     }])
     expect(report.runs.map(run => run.ablation)).toEqual([
-      'full', 'no_window_hygiene', 'similarity_only', 'no_recency', 'no_importance',
+      'full', 'no_window_hygiene', 'no_hebbian', 'similarity_only', 'no_recency', 'no_importance',
     ])
     expect(report.runs[0]?.hitRateAtK).toBe(1)
+    expect(report.runs[0]?.meanAssociationEdgesRead).toBeGreaterThan(0)
+    expect(report.runs.find(run => run.ablation === 'no_hebbian')?.meanAssociationEdgesRead).toBe(0)
   })
 })

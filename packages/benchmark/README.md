@@ -1,3 +1,3 @@
 # @dsh-memory/benchmark
 
-JSONL benchmark runner for retrieval traces and the initial feature ablations. Retrieval traces include association and affect components; the current string-evidence hit rate is a pipeline check, not a publication-quality evaluation.
+JSONL benchmark runner for retrieval traces and feature ablations. Use optional `primingQueries` to build co-activation graph state before the measured query. The runner includes an independent `no_hebbian` condition and reports graph read, application, boost, and reinforcement counts. The current string-evidence hit rate is a pipeline check, not a publication-quality evaluation.

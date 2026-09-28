@@ -4,6 +4,7 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import type {
   AssociationEdge,
   AssociationReinforcement,
+  AssociationReinforcementResult,
   MemoryRecord,
   MemoryLifecycleStatus,
   MemoryListOptions,
@@ -374,10 +375,16 @@ export class SqliteMemoryStore implements MemoryStore {
     }))
   }
 
-  async reinforceAssociations(input: AssociationReinforcement): Promise<number> {
+  async reinforceAssociations(input: AssociationReinforcement): Promise<AssociationReinforcementResult> {
     this.assertOpen()
     const ids = [...new Set(input.memoryIds)].sort()
-    if (ids.length < 2) return 0
+    const countForSession = this.database.prepare(`
+      SELECT COUNT(*) AS count FROM memory_associations WHERE session_id = ?
+    `)
+    if (ids.length < 2) {
+      const current = countForSession.get(input.sessionId) as { count: number }
+      return { reinforcedEdges: 0, prunedEdges: 0, storedEdges: Number(current.count) }
+    }
     const select = this.database.prepare(`
       SELECT weight, coactivation_count, created_at, updated_at
       FROM memory_associations
@@ -392,6 +399,16 @@ export class SqliteMemoryStore implements MemoryStore {
         weight = excluded.weight,
         coactivation_count = excluded.coactivation_count,
         updated_at = excluded.updated_at
+    `)
+    const prune = this.database.prepare(`
+      DELETE FROM memory_associations
+      WHERE rowid IN (
+        SELECT rowid FROM memory_associations
+        WHERE session_id = ?
+        ORDER BY weight ASC, updated_at ASC, coactivation_count ASC,
+          source_memory_id DESC, target_memory_id DESC
+        LIMIT ?
+      )
     `)
     let updated = 0
     this.database.exec('BEGIN IMMEDIATE')
@@ -429,8 +446,16 @@ export class SqliteMemoryStore implements MemoryStore {
           updated += 1
         }
       }
+      const beforePrune = countForSession.get(input.sessionId) as { count: number }
+      const excess = Math.max(0, Number(beforePrune.count) - Math.max(1, Math.floor(input.maxEdgesPerSession)))
+      const pruned = excess === 0 ? 0 : Number(prune.run(input.sessionId, excess).changes)
+      const afterPrune = countForSession.get(input.sessionId) as { count: number }
       this.database.exec('COMMIT')
-      return updated
+      return {
+        reinforcedEdges: updated,
+        prunedEdges: pruned,
+        storedEdges: Number(afterPrune.count),
+      }
     } catch (error: unknown) {
       this.database.exec('ROLLBACK')
       throw error

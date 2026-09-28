@@ -12,14 +12,17 @@
 - Added `window-hygiene-v2` admission rules for current-turn echoes, questions/acknowledgements, conditional statements, explicit entity mismatches, and repeated statements.
 - Added privacy-preserving `focusOverlap` and admission decisions to retrieval traces plus a `no_window_hygiene` benchmark ablation.
 - Normalized instruction-only clauses before duplicate comparison, recognized common DSH-rendered ACK wrappers, and restored full conditional-record utility when a query explicitly asks about a plan or possible later change.
+- Added bounded per-session co-activation graph storage, deterministic weak/old-edge pruning, and privacy-preserving graph activity counters in `RetrievalTrace`.
+- Added priming retrievals and an independent `no_hebbian` benchmark condition so graph mechanics can be measured without changing similarity, recency, or importance policy.
 
 ### Validation
 
-- Build and typecheck pass; 9 test files and 51 tests pass locally.
+- Build and typecheck pass; 9 test files and 53 tests pass locally.
 - The three-case deterministic benchmark fixture retained a 1.0 hit rate while reducing mean selected memories from 2 to 1 and mean estimated retrieval tokens from 89 to 74 versus `no_window_hygiene`; this is a mechanics check, not a production-quality or cost claim.
 - A clean-database DSH Desktop 2.0.6 run passed deterministic supersession, same-valued-neighbor isolation, current/history retrieval, ambiguity fail-safe, native compaction, and crash-restart persistence checks.
 - A subsequent app-controlled Desktop restart reopened the same session and SQLite state; current and historical answers remained correct.
 - A three-attempt live transparent-window validation retained the two initially failing traces, fixed wrapped-ACK/conditional-utility and instruction-aware deduplication gaps, and ended with one selected fact, one redundant duplicate, two low-utility acknowledgements, and no reinforcement edge in the final DSH trace.
+- The deterministic graph fixture reports one edge read/applied, two boosted candidates, and one reinforced edge under `full`; the same counters are zero under `no_hebbian`. This verifies the ablation mechanics, not an answer-quality gain.
 
 ## v0.2.1 - 2026-09-19
 

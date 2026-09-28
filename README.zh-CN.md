@@ -155,8 +155,9 @@ Superseded 记录仍保存在 SQLite 中用于审计。普通检索和 Hebbian �
 | `hebbianLearningRate` | `0.08` | 一次共激活的强化系数 |
 | `hebbianMaxWeight` | `1` | 单条边的最大保存权重 |
 | `hebbianHalfLifeDays` | `45` | 边权重的指数半衰期 |
+| `hebbianMaxEdgesPerSession` | `2048` | 每个 session 最多保存的边数；优先淘汰权重低且较旧的边 |
 
-关联边表示两条记忆曾被共同选中，不代表事实正确、因果关系或用户偏好，也不会训练神经网络。
+关联边表示两条 active statement 记忆曾被共同选中。图扩展不能绕过生命周期、内容类型、词法覆盖率或 focus 门槛，只能在原本合格的候选中调整排序。关联边不代表事实正确、因果关系或用户偏好，也不会训练神经网络。
 
 ### Affect 分析
 
@@ -269,7 +270,7 @@ JSONL 事件类型：
 - `memory/compaction`
 - `plugin/error`
 
-JSONL telemetry 保存稳定 query fingerprint，不保存原始 query 或记忆正文。SQLite retrieval trace 包含各项评分、选择决策、token 数量、关联边统计、query affect 元数据和耗时。
+JSONL telemetry 保存稳定 query fingerprint，不保存原始 query 或记忆正文。SQLite retrieval trace 包含各项评分、选择决策、token 数量、query affect 元数据、耗时，以及不暴露正文的图统计：seed 数、读取/应用/淘汰/保留边数、被增强候选数、强化合格记忆数和建议/实际强化边数。
 
 ## Benchmark
 
@@ -285,7 +286,13 @@ pnpm benchmark
 node packages/benchmark/dist/cli.js C:/path/to/dataset.jsonl
 ```
 
-输入格式见 [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl)。当前 runner 提供 `full`、`similarity_only`、`no_recency` 和 `no_importance`。`hitRateAtK` 只是字符串证据管线检查，不是完整质量评估。
+运行带图预热和 `no_hebbian` 对照的用例：
+
+```powershell
+pnpm benchmark:graph
+```
+
+基本输入格式见 [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl)，带预热的图用例见 [examples/benchmark/graph-ablation.jsonl](examples/benchmark/graph-ablation.jsonl)。用例可通过 `primingQueries` 在正式计分查询前构建图状态。runner 提供 `full`、`no_window_hygiene`、`no_hebbian`、`similarity_only`、`no_recency` 和 `no_importance`，并单独输出图活动指标。`hitRateAtK` 只是字符串证据管线检查，不是完整质量评估。
 
 ## 工程结构
 

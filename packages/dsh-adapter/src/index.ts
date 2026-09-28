@@ -60,6 +60,7 @@ export interface Config {
   hebbianLearningRate?: number
   hebbianMaxWeight?: number
   hebbianHalfLifeDays?: number
+  hebbianMaxEdgesPerSession?: number
   transparentWindowEnabled?: boolean
   emotionAnalysisEnabled?: boolean
   emotionAnalysisProvider?: string
@@ -96,6 +97,7 @@ export const Config: z<Config> = z.object({
   hebbianLearningRate: z.number().min(0).max(1).default(0.08),
   hebbianMaxWeight: z.number().min(0.01).default(1),
   hebbianHalfLifeDays: z.number().min(0.01).default(45),
+  hebbianMaxEdgesPerSession: z.number().step(1).min(1).default(2_048),
   transparentWindowEnabled: z.boolean().default(true),
   emotionAnalysisEnabled: z.boolean().default(false),
   emotionAnalysisProvider: z.string().default(''),
@@ -155,6 +157,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       hebbianLearningRate: config.hebbianLearningRate ?? 0.08,
       hebbianMaxWeight: config.hebbianMaxWeight ?? 1,
       hebbianHalfLifeDays: config.hebbianHalfLifeDays ?? 45,
+      hebbianMaxEdgesPerSession: config.hebbianMaxEdgesPerSession ?? 2_048,
       transparentWindowEnabled: config.transparentWindowEnabled ?? true,
       emotionAnalysisEnabled: config.emotionAnalysisEnabled ?? false,
       emotionAnalysisProvider: config.emotionAnalysisProvider ?? '',
@@ -202,6 +205,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       hebbianLearningRate: resolved.hebbianLearningRate,
       hebbianMaxWeight: resolved.hebbianMaxWeight,
       hebbianHalfLifeDays: resolved.hebbianHalfLifeDays,
+      hebbianMaxEdgesPerSession: resolved.hebbianMaxEdgesPerSession,
     }
     this.runtime = new SelectiveMemoryRuntime(this.store, runtimeConfig)
     this.telemetry = resolved.telemetryEnabled

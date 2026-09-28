@@ -12,7 +12,8 @@
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm build && vitest run",
-    "benchmark": "pnpm --filter @dsh-memory/benchmark benchmark"
+    "benchmark": "pnpm --filter @dsh-memory/benchmark benchmark",
+    "benchmark:graph": "node packages/benchmark/dist/cli.js examples/benchmark/graph-ablation.jsonl"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
