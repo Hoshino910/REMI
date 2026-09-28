@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.0-alpha.1 - Unreleased
+## v0.3.0-alpha.1 - 2026-09-28
 
 ### Added
 
@@ -23,6 +23,7 @@
 - A subsequent app-controlled Desktop restart reopened the same session and SQLite state; current and historical answers remained correct.
 - A three-attempt live transparent-window validation retained the two initially failing traces, fixed wrapped-ACK/conditional-utility and instruction-aware deduplication gaps, and ended with one selected fact, one redundant duplicate, two low-utility acknowledgements, and no reinforcement edge in the final DSH trace.
 - The deterministic graph fixture reports one edge read/applied, two boosted candidates, and one reinforced edge under `full`; the same counters are zero under `no_hebbian`. This verifies the ablation mechanics, not an answer-quality gain.
+- A live 96-round long-context run retained both early facts before and after native DSH compaction. The post-compaction trace selected exactly those two facts from 200 candidates, injected an estimated 132 tokens, and applied the stored association edge. See [docs/V0.3_LONG_CONTEXT_TEST.md](docs/V0.3_LONG_CONTEXT_TEST.md) for the bounded evidence and limitations.
 
 ## v0.2.1 - 2026-09-19
 

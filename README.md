@@ -322,7 +322,7 @@ pnpm benchmark
 
 Current verification results:
 
-- 9 test files and 51 tests pass on the v0.3 alpha development branch;
+- 9 test files and 53 tests pass on the v0.3 alpha development branch;
 - every workspace package builds and type-checks;
 - an isolated DSH Desktop 2.0.6 headless smoke test returned `REMI_LIVE_OK`;
 - the smoke-test memory window used 470 of 600 estimated tokens;
@@ -330,8 +330,9 @@ Current verification results:
 - a clean-database DSH Desktop 2.0.6 current-truth run preserved the active value, the superseded value, and an unrelated same-valued fact across native compaction and a Desktop restart.
 - in the three-case deterministic benchmark fixture, window hygiene kept hit rate at 1.0 while reducing mean selected memories from 2 to 1 and mean estimated retrieval tokens from 89 to 74 versus `no_window_hygiene`. This fixture verifies mechanics, not model-answer quality or production cost savings.
 - a live DSH Desktop 2.0.6 transparent-window run confirmed wrapped acknowledgements as `low-utility`, sibling entities as `focus-mismatch`, explicit future recall with `utilityFactor = 1`, and instruction-wrapped duplicate facts as one `selected` plus one `redundant` candidate.
+- a 96-round live long-context run recalled both early facts before and after native DSH compaction; the post-compaction request used 11.6K model-input tokens instead of 172K before compaction, while REMI selected exactly 2 facts from 200 candidates and injected an estimated 132 tokens.
 
-The headless smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. The isolated current-truth and transparent-window runs used the configured live DSH model path. Provider retries were counted as provider behavior; SQLite lifecycle state and REMI telemetry were checked independently. See the [current-truth validation note](docs/V0.3_CURRENT_TRUTH_TEST.md) and [window-hygiene validation note](docs/V0.3_WINDOW_HYGIENE_TEST.md) for the exact evidence boundaries.
+The headless smoke test used a deterministic local provider to verify lifecycle integration and `ctx.llm.stream()`. The isolated current-truth, transparent-window, and long-context runs used the configured live DSH model path. Provider retries were counted as provider behavior; SQLite lifecycle state and REMI telemetry were checked independently. See the [current-truth validation note](docs/V0.3_CURRENT_TRUTH_TEST.md), [window-hygiene validation note](docs/V0.3_WINDOW_HYGIENE_TEST.md), and [long-context validation note](docs/V0.3_LONG_CONTEXT_TEST.md) for the exact evidence boundaries.
 
 ## Known limitations
 
