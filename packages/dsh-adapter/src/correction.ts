@@ -37,7 +37,7 @@ export async function ingestWithCurrentTruth(
   runtime: MemoryRuntime,
   store: MemoryStore,
   input: MemoryInput,
-  options: { readonly enabled: boolean; readonly maxCandidates: number },
+  options: { readonly enabled: boolean; readonly maxCandidates: number; readonly scope?: 'session' | 'project' },
 ): Promise<CurrentTruthResult> {
   if (!options.enabled || input.role !== 'user') {
     return { inserted: await runtime.ingest(input) }
@@ -45,7 +45,10 @@ export async function ingestWithCurrentTruth(
   const intent = detectDeterministicCorrection(input.content)
   if (intent === undefined) return { inserted: await runtime.ingest(input) }
 
-  const records = await store.listBySession(input.sessionId, options.maxCandidates)
+  if (options.scope === 'project' && store.listByScope === undefined) throw new Error('Store does not support project correction')
+  const records = options.scope === 'project'
+    ? await store.listByScope!(input.sessionId, options.maxCandidates)
+    : await store.listBySession(input.sessionId, options.maxCandidates)
   const resolution = resolveDeterministicCorrectionTarget(intent, records)
   if (resolution.status !== 'resolved' || resolution.target === undefined) {
     return {

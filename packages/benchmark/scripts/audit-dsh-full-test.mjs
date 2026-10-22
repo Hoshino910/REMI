@@ -19,8 +19,11 @@ const db = new DatabaseSync(dbArg, { readOnly: true })
 const records = db.prepare('SELECT * FROM memories WHERE session_id=?').all(progress.sessionId)
 const byId = new Map(records.map(m => [m.id, m]))
 const traces = db.prepare('SELECT payload_json FROM retrieval_traces WHERE session_id=? ORDER BY started_at').all(progress.sessionId).map(r => JSON.parse(r.payload_json))
-const associations = db.prepare('SELECT count(*) AS edges FROM memory_associations WHERE session_id=?').get(progress.sessionId).edges
-const databaseSessions = db.prepare('SELECT DISTINCT session_id FROM memories UNION SELECT DISTINCT session_id FROM retrieval_traces UNION SELECT DISTINCT session_id FROM memory_associations').all().map(r=>r.session_id)
+const namespaced = db.prepare("SELECT 1 FROM schema_meta WHERE key='graph_namespace_v1'").get()
+const graphKey = namespaced ? `session:${JSON.stringify(progress.sessionId)}` : progress.sessionId
+const associations = db.prepare('SELECT count(*) AS edges FROM memory_associations WHERE session_id=?').get(graphKey).edges
+// v4 graph session_id is a namespace, not a DSH session. Edge endpoints are FK-backed memories.
+const databaseSessions = db.prepare('SELECT DISTINCT session_id FROM memories UNION SELECT DISTINCT session_id FROM retrieval_traces').all().map(r=>r.session_id)
 db.close()
 
 const recall = progress.turns.filter(t => t.target).map(t => {

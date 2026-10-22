@@ -24,7 +24,10 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {
-    "@dsh-memory/core": "workspace:*"
+    "@dsh-memory/core": "workspace:*",
+    "@dsh-memory/store-sqlite": "workspace:*",
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.2"
   },
   "license": "MIT"
 }

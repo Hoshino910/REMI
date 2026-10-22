@@ -2,6 +2,27 @@ export type MemoryRole = 'user' | 'assistant' | 'tool' | 'unknown'
 export type MemoryLifecycleStatus = 'active' | 'superseded' | 'excluded' | 'deleted'
 export type MemoryRevisionSource = 'deterministic' | 'model' | 'manual' | 'migration'
 
+/** Trusted host configuration, never inferred from recalled content or model output. */
+export interface MemoryScope {
+  readonly ownerId: string
+  readonly projectId: string
+}
+
+export interface ForgetRequest {
+  readonly sessionId: string
+  readonly memoryIds: readonly string[]
+  readonly mode: 'exclude' | 'delete' | 'purge'
+  /** Remove the entire revision chain by default, so history cannot resurrect it. */
+  readonly includeRevisions?: boolean
+  readonly at?: number
+}
+
+export interface ForgetResult {
+  readonly affectedIds: readonly string[]
+  readonly removedEdges: number
+  readonly mode: ForgetRequest['mode']
+}
+
 export interface EmotionVector {
   /** Pleasantness in [-1, 1]. */
   readonly valence: number
@@ -118,6 +139,8 @@ export interface RetrievedMemory {
 
 export interface RetrievalRequest {
   readonly sessionId: string
+  /** Project retrieval requires a trusted, persisted session-to-scope binding. */
+  readonly scope?: 'session' | 'project'
   readonly query: string
   readonly tokenBudget: number
   readonly limit?: number
@@ -154,6 +177,7 @@ export interface AssociationEdge {
 
 export interface AssociationReinforcement {
   readonly sessionId: string
+  readonly scope?: 'session' | 'project'
   readonly memoryIds: readonly string[]
   readonly activations: Readonly<Record<string, number>>
   readonly at: number
@@ -190,6 +214,8 @@ export interface MemorySupersessionInput {
 }
 
 export interface MemoryRuntimeConfig {
+  /** Pure affect ablation: preserve all other coefficients and skip affect inference. */
+  readonly affectEnabled?: boolean
   readonly contentAwareRetrievalEnabled?: boolean
   readonly windowHygieneEnabled?: boolean
   readonly minLexicalCoverage?: number
@@ -257,10 +283,16 @@ export interface MemoryStore {
     sessionId: string,
     memoryIds: readonly string[],
     limit: number,
+    scope?: 'session' | 'project',
   ): Promise<readonly AssociationEdge[]>
   reinforceAssociations?(input: AssociationReinforcement): Promise<number | AssociationReinforcementResult>
   /** Atomically inserts the replacement and marks the active target superseded. */
   supersede?(input: MemorySupersession): Promise<boolean>
+  bindSessionScope?(sessionId: string, scope: MemoryScope): Promise<void>
+  listByScope?(sessionId: string, limit: number, options?: MemoryListOptions): Promise<readonly MemoryRecord[]>
+  forget?(input: ForgetRequest): Promise<ForgetResult>
+  /** Exact normalized-content tombstones; not semantic or provider-log erasure. */
+  isContentBlocked?(sessionId: string, contentHash: string): Promise<boolean>
   stats(): Promise<StoreStats>
   close(): Promise<void>
 }

@@ -1,0 +1,13 @@
+# Trusted host settings for one owner/project. These are not model-supplied identifiers.
+# Overlay the existing REMI entry; use a separate sidecar until the local DSH gate passes.
+- id: selective-memory
+  config:
+    databasePath: 'C:/remi-validation/project-memory.sqlite'
+    telemetryPath: 'C:/remi-validation/project-telemetry.jsonl'
+    projectRecallEnabled: true
+    scopeOwnerId: 'local-owner'
+    scopeProjectId: 'REMI'
+    currentTruthEnabled: true
+    hebbianEnabled: true
+    affectEnabled: true
+    emotionAnalysisEnabled: false

@@ -1,0 +1,7 @@
+# Install this independent observer in EVERY arm, including no_plugin.
+# In isolated agent presets put it in the composition that owns ctx.llm.
+- insert:
+    - id: remi-validation-meter
+      name: 'file:///C:/path/to/REMI/packages/benchmark/dist/dsh-meter.js'
+      config:
+        outputPath: 'C:/remi-validation/calls.jsonl'

@@ -366,6 +366,22 @@ describe('SelectiveMemoryRuntime', () => {
     expect(emotion.valence).toBeLessThan(0)
     expect(emotion.arousal).toBeGreaterThan(0.5)
   })
+  it('ablates affect without changing unrelated score weights', async () => {
+    const store = new TestStore()
+    const full = new SelectiveMemoryRuntime(store)
+    await full.ingest({ sessionId: 'affect', sourceEventSeq: 1, role: 'user', sourceType: 'user/message', content: 'Cedar deployment must work.', timestamp: 1 })
+    const request = { sessionId: 'affect', query: 'Cedar deployment', tokenBudget: 400, now: 2 }
+    const withAffect = await full.retrieve(request)
+    const withoutAffect = await new SelectiveMemoryRuntime(store, { affectEnabled: false }).retrieve(request)
+    expect(withoutAffect.trace.weights).toEqual(withAffect.trace.weights)
+    expect(withoutAffect.trace.candidates[0]?.emotionScore).toBe(0)
+    expect(withoutAffect.trace.candidates[0]?.similarityScore).toBe(withAffect.trace.candidates[0]?.similarityScore)
+  })
+  it.each([0, 1, 16, 32, 64, 120])('keeps the final compaction output within a %i-token estimate budget', async tokenBudget => {
+    const result = await new SelectiveMemoryRuntime(new TestStore()).compact({ sessionId: 'compact-budget', tokenBudget,
+      entries: [{ role: 'user', content: 'Cedar deployment value is long enough to require packing.', timestamp: 1 }] })
+    expect(result.estimatedTokens).toBeLessThanOrEqual(tokenBudget)
+  })
 
   it('creates a smaller deterministic continuity checkpoint', async () => {
     const runtime = new SelectiveMemoryRuntime(new TestStore())

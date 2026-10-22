@@ -1,0 +1,8 @@
+{
+  "operation": "recall",
+  "request": {
+    "sessionId": "example-session",
+    "query": "What is the current Cedar service port?",
+    "tokenBudget": 400
+  }
+}

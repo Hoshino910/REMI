@@ -104,7 +104,7 @@ describe('SqliteMemoryStore', () => {
     await expect(store.stats()).resolves.toEqual({ memories: 0, traces: 0, associations: 0 })
   })
 
-  it('migrates a v2 database to lifecycle schema v3 without losing memories', async () => {
+  it('migrates a v2 database to lifecycle schema v4 without losing memories', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'remi-v2-migration-'))
     temporaryDirectories.push(directory)
     const filename = join(directory, 'memory.sqlite')
@@ -133,7 +133,7 @@ describe('SqliteMemoryStore', () => {
     expect(records).toHaveLength(1)
     expect(records[0]).toMatchObject({ id: 'm_legacy', status: 'active', validFrom: 123 })
     const inspection = new DatabaseSync(filename, { readOnly: true })
-    expect(inspection.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()).toEqual({ value: '3' })
+    expect(inspection.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()).toEqual({ value: '4' })
     inspection.close()
   })
 

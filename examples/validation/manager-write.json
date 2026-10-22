@@ -1,0 +1,11 @@
+{
+  "operation": "write",
+  "memory": {
+    "sessionId": "example-session",
+    "sourceEventSeq": 1,
+    "role": "user",
+    "sourceType": "manual",
+    "content": "The Cedar service port is 8247.",
+    "timestamp": 1792627200000
+  }
+}

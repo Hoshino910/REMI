@@ -8,6 +8,7 @@ import {
   type MemoryRuntimeConfig,
   type MemoryStore,
   type RetrievalTrace,
+  type EmotionVector,
 } from '@dsh-memory/core'
 
 export interface BenchmarkCase {
@@ -15,6 +16,7 @@ export interface BenchmarkCase {
   readonly sessionId: string
   readonly memories: readonly Omit<MemoryInput, 'sessionId'>[]
   readonly query: string
+  readonly queryEmotion?: EmotionVector
   readonly relevantContentIncludes: readonly string[]
   readonly tokenBudget: number
   readonly limit?: number
@@ -128,7 +130,8 @@ class MemoryArrayStore implements MemoryStore {
 const ABLATIONS: ReadonlyArray<{ name: string; config: MemoryRuntimeConfig }> = [
   { name: 'full', config: {} },
   { name: 'no_window_hygiene', config: { windowHygieneEnabled: false } },
-  { name: 'no_hebbian', config: { hebbianEnabled: false, weights: { association: 0 } } },
+  { name: 'no_hebbian', config: { hebbianEnabled: false } },
+  { name: 'no_affect', config: { affectEnabled: false } },
   { name: 'similarity_only', config: { hebbianEnabled: false, weights: { similarity: 1, recency: 0, importance: 0, association: 0, emotion: 0 } } },
   { name: 'no_recency', config: { weights: { similarity: 0.65, recency: 0, importance: 0.15, association: 0.15, emotion: 0.05 } } },
   { name: 'no_importance', config: { weights: { similarity: 0.65, recency: 0.15, importance: 0, association: 0.15, emotion: 0.05 } } },
@@ -177,6 +180,7 @@ async function runAblation(
     const result = await runtime.retrieve({
       sessionId: testCase.sessionId,
       query: testCase.query,
+      ...(testCase.queryEmotion === undefined ? {} : { emotion: testCase.queryEmotion }),
       tokenBudget: testCase.tokenBudget,
       ...(testCase.limit === undefined ? {} : { limit: testCase.limit }),
       ...(testCase.now === undefined ? {} : { now: testCase.now }),

@@ -14,6 +14,9 @@ import type {
   MemoryStore,
   RetrievalTrace,
   StoreStats,
+  MemoryScope,
+  ForgetRequest,
+  ForgetResult,
 } from '@dsh-memory/core'
 
 export interface SqliteMemoryStoreConfig {
@@ -177,6 +180,18 @@ export class SqliteMemoryStore implements MemoryStore {
         ON memory_associations(session_id, source_memory_id, weight DESC);
       CREATE INDEX IF NOT EXISTS memory_associations_target
         ON memory_associations(session_id, target_memory_id, weight DESC);
+      CREATE TABLE IF NOT EXISTS session_scopes (
+        session_id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL CHECK(length(owner_id) > 0),
+        project_id TEXT NOT NULL CHECK(length(project_id) > 0)
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS session_scopes_project ON session_scopes(owner_id, project_id);
+      CREATE TABLE IF NOT EXISTS content_tombstones (
+        session_id TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(session_id, content_hash)
+      ) STRICT;
     `)
     const columns = this.database.prepare('PRAGMA table_info(memories)').all() as Array<{ name: string }>
     if (!columns.some(column => column.name === 'emotion_json')) {
@@ -200,9 +215,18 @@ export class SqliteMemoryStore implements MemoryStore {
         ON memories(session_id, status, created_at DESC);
     `)
     this.database.prepare(`
-      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '3')
+      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '4')
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run()
+    // Distinct namespaces prevent arbitrary session names colliding with project graphs.
+    if (!this.database.prepare("SELECT 1 FROM schema_meta WHERE key = 'graph_namespace_v1'").get()) {
+      this.database.exec('BEGIN IMMEDIATE')
+      try {
+        this.database.exec("UPDATE memory_associations SET session_id = 'session:' || json_quote(session_id)")
+        this.database.exec("INSERT INTO schema_meta(key, value) VALUES ('graph_namespace_v1', '1')")
+        this.database.exec('COMMIT')
+      } catch (error: unknown) { this.database.exec('ROLLBACK'); throw error }
+    }
   }
 
   private insertRecord(record: MemoryRecord): boolean {
@@ -243,7 +267,20 @@ export class SqliteMemoryStore implements MemoryStore {
 
   async put(record: MemoryRecord): Promise<boolean> {
     this.assertOpen()
+    if (await this.isContentBlocked(record.sessionId, record.contentHash)) return false
     return this.insertRecord(record)
+  }
+
+  async isContentBlocked(sessionId: string, contentHash: string): Promise<boolean> {
+    this.assertOpen()
+    const sessions = `SELECT session_id FROM session_scopes WHERE (owner_id, project_id) IN
+      (SELECT owner_id, project_id FROM session_scopes WHERE session_id = ?)`
+    return this.database.prepare(`
+      SELECT 1 FROM content_tombstones WHERE content_hash = ? AND (session_id = ? OR session_id IN (${sessions}))
+      UNION ALL
+      SELECT 1 FROM memories WHERE content_hash = ? AND status != 'active'
+        AND (session_id = ? OR session_id IN (${sessions})) LIMIT 1
+    `).get(contentHash, sessionId, sessionId, contentHash, sessionId, sessionId) !== undefined
   }
 
   async supersede(input: MemorySupersession): Promise<boolean> {
@@ -258,7 +295,7 @@ export class SqliteMemoryStore implements MemoryStore {
         status: MemoryLifecycleStatus
         superseded_by_memory_id: string | null
       } | undefined
-      if (target === undefined || target.session_id !== input.sessionId) {
+      if (target === undefined || (target.session_id !== input.sessionId && !this.sameScope(target.session_id, input.sessionId))) {
         throw new Error('Supersession target does not exist in the requested session')
       }
       if (target.status === 'superseded' && target.superseded_by_memory_id === input.replacement.id) {
@@ -280,11 +317,122 @@ export class SqliteMemoryStore implements MemoryStore {
         WHERE id = ? AND session_id = ? AND status = 'active'
       `).run(
         input.replacement.id, input.at, input.reason, input.source,
-        input.targetMemoryId, input.sessionId,
+        input.targetMemoryId, target.session_id,
       )
       if (result.changes !== 1) throw new Error('Supersession target changed concurrently')
       this.database.exec('COMMIT')
       return true
+    } catch (error: unknown) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  async bindSessionScope(sessionId: string, scope: MemoryScope): Promise<void> {
+    this.assertOpen()
+    if (![sessionId, scope.ownerId, scope.projectId].every(value => value.trim().length > 0)) {
+      throw new Error('Session, owner and project identifiers must be non-empty')
+    }
+    this.database.prepare(`
+      INSERT INTO session_scopes(session_id, owner_id, project_id) VALUES (?, ?, ?)
+      ON CONFLICT(session_id) DO NOTHING
+    `).run(sessionId, scope.ownerId, scope.projectId)
+    const row = this.database.prepare('SELECT owner_id, project_id FROM session_scopes WHERE session_id = ?')
+      .get(sessionId) as { owner_id: string; project_id: string }
+    if (row.owner_id !== scope.ownerId || row.project_id !== scope.projectId) {
+      throw new Error('Session scope is immutable; use a new session for another owner or project')
+    }
+  }
+
+  private sameScope(left: string, right: string): boolean {
+    return this.database.prepare(`
+      SELECT 1 FROM session_scopes a JOIN session_scopes b
+        ON a.owner_id = b.owner_id AND a.project_id = b.project_id
+      WHERE a.session_id = ? AND b.session_id = ?
+    `).get(left, right) !== undefined
+  }
+
+  private graphKey(sessionId: string, scope: 'session' | 'project' = 'session'): string {
+    if (scope === 'session') return `session:${JSON.stringify(sessionId)}`
+    const binding = this.database.prepare('SELECT owner_id, project_id FROM session_scopes WHERE session_id = ?')
+      .get(sessionId) as { owner_id: string; project_id: string } | undefined
+    if (!binding) throw new Error('Project graph requires a bound session scope')
+    return `project:${JSON.stringify([binding.owner_id, binding.project_id])}`
+  }
+
+  async listByScope(sessionId: string, limit: number, options: MemoryListOptions = {}): Promise<readonly MemoryRecord[]> {
+    this.assertOpen()
+    const binding = this.database.prepare('SELECT owner_id, project_id FROM session_scopes WHERE session_id = ?')
+      .get(sessionId) as { owner_id: string; project_id: string } | undefined
+    if (binding === undefined) throw new Error('Project retrieval requires a bound session scope')
+    const quarantine = this.excludedSourceKinds.length === 0 ? ''
+      : `AND COALESCE(json_extract(m.metadata_json, '$.sourceKind'), '') NOT IN (${this.excludedSourceKinds.map(() => '?').join(',')})`
+    const rows = this.database.prepare(`
+      SELECT m.* FROM memories m JOIN session_scopes s ON s.session_id = m.session_id
+      WHERE s.owner_id = ? AND s.project_id = ?
+        ${options.includeInactive === true ? '' : "AND m.status = 'active'"}
+        ${quarantine}
+      ORDER BY CASE m.status WHEN 'active' THEN 0 ELSE 1 END, m.created_at DESC, m.id
+      LIMIT ?
+    `).all(binding.owner_id, binding.project_id, ...this.excludedSourceKinds, Math.max(0, Math.floor(limit))) as unknown as MemoryRow[]
+    return rows.map(rowToRecord)
+  }
+
+  /** Logical deletion/scrubbing; this cannot erase host logs, backups or SQLite free pages. */
+  async forget(input: ForgetRequest): Promise<ForgetResult> {
+    this.assertOpen()
+    if (!['exclude', 'delete', 'purge'].includes(input.mode)) throw new Error('Invalid forget mode')
+    const at = input.at ?? Date.now()
+    if (!Number.isFinite(at)) throw new Error('Invalid forget timestamp')
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const accessible = this.database.prepare(`
+        SELECT id, session_id, supersedes_memory_id, superseded_by_memory_id FROM memories
+        WHERE session_id = ? OR session_id IN (
+          SELECT a.session_id FROM session_scopes a JOIN session_scopes b
+            ON a.owner_id = b.owner_id AND a.project_id = b.project_id WHERE b.session_id = ?
+        )
+      `).all(input.sessionId, input.sessionId) as Array<{ id: string; session_id: string; supersedes_memory_id: string | null; superseded_by_memory_id: string | null }>
+      const byId = new Map(accessible.map(row => [row.id, row]))
+      const selected = new Set(input.memoryIds)
+      for (const id of selected) if (!byId.has(id)) throw new Error('Forget target does not exist in the requested session')
+      if (input.includeRevisions !== false) {
+        // Traverse in both directions, including migrated one-sided links.
+        let expanded = true
+        while (expanded) {
+          expanded = false
+          for (const row of accessible) {
+            if (selected.has(row.id) || selected.has(row.supersedes_memory_id ?? '') || selected.has(row.superseded_by_memory_id ?? '')) {
+              for (const id of [row.id, row.supersedes_memory_id, row.superseded_by_memory_id]) {
+                if (id !== null && byId.has(id) && !selected.has(id)) { selected.add(id); expanded = true }
+              }
+            }
+          }
+        }
+      }
+      let removedEdges = 0
+      for (const id of selected) {
+        this.database.prepare(`
+          INSERT OR IGNORE INTO content_tombstones(session_id, content_hash, created_at)
+          SELECT session_id, content_hash, ? FROM memories WHERE id = ? AND content_hash NOT LIKE 'purged:%'
+        `).run(at, id)
+        removedEdges += Number(this.database.prepare(`
+          DELETE FROM memory_associations WHERE source_memory_id = ? OR target_memory_id = ?
+        `).run(id, id).changes)
+        this.database.prepare(`
+          UPDATE memories SET status = CASE WHEN status = 'deleted' THEN 'deleted' ELSE ? END,
+            valid_until = COALESCE(valid_until, ?), revision_reason = 'Explicit local forget', revision_source = 'manual'
+          WHERE id = ? AND session_id = ?
+        `).run(input.mode === 'exclude' ? 'excluded' : 'deleted', at, id, byId.get(id)!.session_id)
+        if (input.mode === 'purge') {
+          this.database.prepare(`
+            UPDATE memories SET content = '', content_hash = ?, embedding = X'', emotion_json = NULL,
+              metadata_json = '{}', importance = 0, estimated_tokens = 0 WHERE id = ?
+          `).run(`purged:${id}`, id)
+        }
+      }
+      this.database.exec('COMMIT')
+      return { affectedIds: [...selected].sort(), removedEdges, mode: input.mode }
     } catch (error: unknown) {
       this.database.exec('ROLLBACK')
       throw error
@@ -342,6 +490,7 @@ export class SqliteMemoryStore implements MemoryStore {
     sessionId: string,
     memoryIds: readonly string[],
     limit: number,
+    scope: 'session' | 'project' = 'session',
   ): Promise<readonly AssociationEdge[]> {
     this.assertOpen()
     const ids = [...new Set(memoryIds)]
@@ -355,7 +504,7 @@ export class SqliteMemoryStore implements MemoryStore {
         AND (source_memory_id IN (${placeholders}) OR target_memory_id IN (${placeholders}))
       ORDER BY weight DESC, updated_at DESC
       LIMIT ?
-    `).all(sessionId, ...ids, ...ids, Math.floor(limit)) as unknown as Array<{
+    `).all(this.graphKey(sessionId, scope), ...ids, ...ids, Math.floor(limit)) as unknown as Array<{
       session_id: string
       source_memory_id: string
       target_memory_id: string
@@ -365,7 +514,7 @@ export class SqliteMemoryStore implements MemoryStore {
       updated_at: number
     }>
     return rows.map(row => ({
-      sessionId: row.session_id,
+      sessionId,
       sourceMemoryId: row.source_memory_id,
       targetMemoryId: row.target_memory_id,
       weight: row.weight,
@@ -378,11 +527,12 @@ export class SqliteMemoryStore implements MemoryStore {
   async reinforceAssociations(input: AssociationReinforcement): Promise<AssociationReinforcementResult> {
     this.assertOpen()
     const ids = [...new Set(input.memoryIds)].sort()
+    const graphKey = this.graphKey(input.sessionId, input.scope)
     const countForSession = this.database.prepare(`
       SELECT COUNT(*) AS count FROM memory_associations WHERE session_id = ?
     `)
     if (ids.length < 2) {
-      const current = countForSession.get(input.sessionId) as { count: number }
+      const current = countForSession.get(graphKey) as { count: number }
       return { reinforcedEdges: 0, prunedEdges: 0, storedEdges: Number(current.count) }
     }
     const select = this.database.prepare(`
@@ -413,13 +563,20 @@ export class SqliteMemoryStore implements MemoryStore {
     let updated = 0
     this.database.exec('BEGIN IMMEDIATE')
     try {
+      for (const id of ids) {
+        const row = this.database.prepare('SELECT session_id, status FROM memories WHERE id = ?').get(id) as { session_id: string; status: string } | undefined
+        if (!row || row.status !== 'active' || (row.session_id !== input.sessionId
+          && !(input.scope === 'project' && this.sameScope(row.session_id, input.sessionId)))) {
+          throw new Error('Graph reinforcement requires active memories in the requested scope')
+        }
+      }
       for (let leftIndex = 0; leftIndex < ids.length; leftIndex += 1) {
         for (let rightIndex = leftIndex + 1; rightIndex < ids.length; rightIndex += 1) {
           const left = ids[leftIndex]
           const right = ids[rightIndex]
           if (left === undefined || right === undefined || left === right) continue
           const [source, target] = canonicalPair(left, right)
-          const existing = select.get(input.sessionId, source, target) as {
+          const existing = select.get(graphKey, source, target) as {
             weight: number
             coactivation_count: number
             created_at: number
@@ -435,7 +592,7 @@ export class SqliteMemoryStore implements MemoryStore {
           )
           const weight = Math.min(input.maxWeight, decayed + input.learningRate * activation)
           upsert.run(
-            input.sessionId,
+            graphKey,
             source,
             target,
             weight,
@@ -446,10 +603,10 @@ export class SqliteMemoryStore implements MemoryStore {
           updated += 1
         }
       }
-      const beforePrune = countForSession.get(input.sessionId) as { count: number }
+      const beforePrune = countForSession.get(graphKey) as { count: number }
       const excess = Math.max(0, Number(beforePrune.count) - Math.max(1, Math.floor(input.maxEdgesPerSession)))
-      const pruned = excess === 0 ? 0 : Number(prune.run(input.sessionId, excess).changes)
-      const afterPrune = countForSession.get(input.sessionId) as { count: number }
+      const pruned = excess === 0 ? 0 : Number(prune.run(graphKey, excess).changes)
+      const afterPrune = countForSession.get(graphKey) as { count: number }
       this.database.exec('COMMIT')
       return {
         reinforcedEdges: updated,

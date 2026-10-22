@@ -17,7 +17,7 @@ import {
 } from './extract.js'
 import { analyzeEmotionWithDsh } from './emotion.js'
 import { ingestWithCurrentTruth } from './correction.js'
-import { withTransparentMemoryWindow } from './window.js'
+import { withTransparentMemoryWindow, withoutTransparentMemoryWindow } from './window.js'
 import {
   JsonlTelemetrySink,
   NoopTelemetrySink,
@@ -39,6 +39,7 @@ export const STABLE_MEMORY_POLICY = [
 ].join('\n')
 
 export interface Config {
+  affectEnabled?: boolean
   contentAwareRetrievalEnabled?: boolean
   windowHygieneEnabled?: boolean
   minLexicalCoverage?: number
@@ -73,9 +74,13 @@ export interface Config {
   compactionRetainRatio?: number
   autoCompaction?: boolean
   currentTruthEnabled?: boolean
+  projectRecallEnabled?: boolean
+  scopeOwnerId?: string
+  scopeProjectId?: string
 }
 
 export const Config: z<Config> = z.object({
+  affectEnabled: z.boolean().default(true),
   contentAwareRetrievalEnabled: z.boolean().default(true),
   windowHygieneEnabled: z.boolean().default(true),
   minLexicalCoverage: z.number().min(0).max(1).default(0.15),
@@ -110,6 +115,9 @@ export const Config: z<Config> = z.object({
   compactionRetainRatio: z.number().min(0.01).max(0.9).default(0.16),
   autoCompaction: z.boolean().default(true),
   currentTruthEnabled: z.boolean().default(false),
+  projectRecallEnabled: z.boolean().default(false),
+  scopeOwnerId: z.string().default(''),
+  scopeProjectId: z.string().default(''),
 })
 
 function resolvedPath(value: string): string {
@@ -136,6 +144,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
 
   constructor(ctx: Context, config: Config = {}) {
     const resolved: Required<Config> = {
+      affectEnabled: config.affectEnabled ?? true,
       contentAwareRetrievalEnabled: config.contentAwareRetrievalEnabled ?? true,
       windowHygieneEnabled: config.windowHygieneEnabled ?? true,
       minLexicalCoverage: config.minLexicalCoverage ?? 0.15,
@@ -170,6 +179,12 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       compactionRetainRatio: config.compactionRetainRatio ?? 0.16,
       autoCompaction: config.autoCompaction ?? true,
       currentTruthEnabled: config.currentTruthEnabled ?? false,
+      projectRecallEnabled: config.projectRecallEnabled ?? false,
+      scopeOwnerId: config.scopeOwnerId ?? '',
+      scopeProjectId: config.scopeProjectId ?? '',
+    }
+    if (resolved.projectRecallEnabled && (!resolved.scopeOwnerId.trim() || !resolved.scopeProjectId.trim())) {
+      throw new Error('Project recall requires scopeOwnerId and scopeProjectId from trusted host configuration')
     }
     super(ctx, {
       auto: resolved.autoCompaction,
@@ -186,6 +201,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       excludedSourceKinds: ['plugin', 'skill-catalog', 'agent-instructions'],
     })
     const runtimeConfig: MemoryRuntimeConfig = {
+      affectEnabled: resolved.affectEnabled,
       contentAwareRetrievalEnabled: resolved.contentAwareRetrievalEnabled,
       windowHygieneEnabled: resolved.windowHygieneEnabled,
       minLexicalCoverage: resolved.minLexicalCoverage,
@@ -236,7 +252,7 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
     })
 
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      const downstream = await next()
+      const downstream = withoutTransparentMemoryWindow(await next())
       const agent = context.agent
       if (!this.pluginConfig.transparentWindowEnabled || agent === undefined) return downstream
       const sessionId = String(agent.session.id)
@@ -245,16 +261,17 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       await this.pendingObservation
       context.signal?.throwIfAborted()
       try {
+        await this.bindScope(sessionId)
         const emotion = await this.queryEmotion(agent, window.query, context.signal)
         const result = await this.runtime.retrieve({
           sessionId,
+          scope: this.pluginConfig.projectRecallEnabled ? 'project' : 'session',
           query: window.query,
-          emotion,
+          ...(emotion === undefined ? {} : { emotion }),
           tokenBudget: this.pluginConfig.retrievalTokenBudget,
           limit: this.pluginConfig.retrievalLimit,
         })
         this.telemetry.record({ type: 'memory/retrieval', time: Date.now(), trace: result.trace })
-        if (result.text.length === 0) return downstream
         this.telemetry.record({
           type: 'memory/window',
           time: Date.now(),
@@ -298,9 +315,11 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
           this.pluginConfig.maxMemoryChars,
         )
         if (input === undefined) return
+        await this.bindScope(input.sessionId)
         const result = await ingestWithCurrentTruth(this.runtime, this.store, input, {
           enabled: this.pluginConfig.currentTruthEnabled,
           maxCandidates: this.pluginConfig.maxCandidates,
+          scope: this.pluginConfig.projectRecallEnabled ? 'project' : 'session',
         })
         this.telemetry.record({
           type: 'memory/ingested',
@@ -330,6 +349,13 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
       })
   }
 
+  private async bindScope(sessionId: string): Promise<void> {
+    if (!this.pluginConfig.scopeOwnerId || !this.pluginConfig.scopeProjectId) return
+    await this.store.bindSessionScope(sessionId, {
+      ownerId: this.pluginConfig.scopeOwnerId, projectId: this.pluginConfig.scopeProjectId,
+    })
+  }
+
   private recordError(operation: string, error: unknown): void {
     this.telemetry.record({
       type: 'plugin/error',
@@ -343,7 +369,8 @@ export class DshSelectiveMemory extends BasicCompactionEngine {
     agent: Agent,
     query: string,
     signal?: AbortSignal,
-  ): Promise<EmotionVector> {
+  ): Promise<EmotionVector | undefined> {
+    if (!this.pluginConfig.affectEnabled) return undefined
     if (!this.pluginConfig.emotionAnalysisEnabled) return inferHeuristicEmotion(query)
     const startedAt = Date.now()
     let emotion: EmotionVector

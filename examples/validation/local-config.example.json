@@ -1,0 +1,13 @@
+{
+  "outputDirectory": "C:/remi-validation/runs",
+  "meterPath": "C:/remi-validation/calls.jsonl",
+  "maxPrompts": 128,
+  "turnTimeoutMs": 180000,
+  "variants": {
+    "full": { "preset": "remi-validation-full" },
+    "no_plugin": { "preset": "remi-validation-no-plugin" },
+    "compaction_only": { "preset": "remi-validation-compaction-only" },
+    "no_hebbian": { "preset": "remi-validation-no-hebbian" },
+    "no_affect": { "preset": "remi-validation-no-affect" }
+  }
+}

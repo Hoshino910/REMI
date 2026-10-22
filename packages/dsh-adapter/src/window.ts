@@ -3,6 +3,10 @@ import { PLUGIN_ID } from './extract.js'
 
 export const TRANSPARENT_WINDOW_CONTEXT_NAME = `${PLUGIN_ID}:transparent-window`
 
+export function withoutTransparentMemoryWindow(assembly: PromptAssembly): PromptAssembly {
+  return { ...assembly, contexts: assembly.contexts.filter(context => context.name !== TRANSPARENT_WINDOW_CONTEXT_NAME) }
+}
+
 /**
  * Replace this plugin's prior contribution inside one assembly. DSH also
  * supersedes prior durable runtime-context snapshots between loop steps.

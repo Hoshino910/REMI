@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-10-22",
+  "mainBase": "4cc52ddb051affe53894dc4b883a751c033741b0",
+  "environment": {
+    "platform": "linux",
+    "node": "24.19.0"
+  },
+  "build": "passed",
+  "typecheck": "passed",
+  "vitest": {
+    "files": 13,
+    "tests": 81,
+    "passed": 81,
+    "failed": 0,
+    "success": true
+  },
+  "scope": "offline mechanisms and synthetic fixtures",
+  "liveModelCallsMade": 0,
+  "notVerified": [
+    "User local unpushed changes",
+    "DSH live integration of this branch",
+    "Provider cost reduction",
+    "Windows CI execution",
+    "Semantic forgetting from host logs"
+  ]
+}

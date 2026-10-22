@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — framework groundwork
+
+- Add explicit owner/project scopes and cross-session bounded Hebbian graphs without changing full-mode Hebbian/affect defaults.
+- Add schema-v4 atomic lifecycle forget, revision-chain handling, exact-content tombstones and logical row scrubbing.
+- Add local MemoryManager/CLI for explicit-ID management and read-only recall/consolidation previews.
+- Add frozen paired validation, independent DSH usage observation, strict answer scoring, cache-aware pricing and seed-cluster confidence intervals.
+- Add pure Hebbian/affect ablations without redistributing other scoring coefficients; strengthen transparent-window clearing and compaction budget tests.
+- Add offline Windows/Linux CI configuration, local DSH protocols and an evidence-based main audit. Live integration and provider cost results remain pending.
+
 ## v0.3.0-alpha.1 - 2026-09-28
 
 ### Added

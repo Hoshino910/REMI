@@ -13,7 +13,13 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm build && vitest run",
     "benchmark": "pnpm --filter @dsh-memory/benchmark benchmark",
-    "benchmark:graph": "node packages/benchmark/dist/cli.js examples/benchmark/graph-ablation.jsonl"
+    "benchmark:graph": "node packages/benchmark/dist/cli.js examples/benchmark/graph-ablation.jsonl",
+    "benchmark:affect": "node packages/benchmark/dist/cli.js examples/benchmark/affect-ablation.jsonl",
+    "memory": "node packages/manager/dist/cli.js",
+    "validate:offline": "pnpm test && pnpm typecheck && pnpm benchmark:graph",
+    "validate:plan": "node packages/benchmark/dist/validation-cli.js plan",
+    "validate:score": "node packages/benchmark/dist/validation-cli.js score",
+    "validate:local": "node packages/benchmark/scripts/run-paired-validation.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",

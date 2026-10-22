@@ -20,9 +20,18 @@ importers:
 
   packages/benchmark:
     dependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.2
+        version: 4.0.2
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@dsh-memory/core':
         specifier: workspace:*
         version: link:../core
+      '@dsh-memory/store-sqlite':
+        specifier: workspace:*
+        version: link:../store-sqlite
 
   packages/core: {}
 
@@ -65,6 +74,15 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(b0610af242b1c95b80c4d1b750321823)
+
+  packages/manager:
+    dependencies:
+      '@dsh-memory/core':
+        specifier: workspace:*
+        version: link:../core
+      '@dsh-memory/store-sqlite':
+        specifier: workspace:*
+        version: link:../store-sqlite
 
   packages/store-sqlite:
     dependencies:

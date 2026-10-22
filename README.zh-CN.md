@@ -1,5 +1,13 @@
 # REMI
 
+## 整体框架增量（未发布）
+
+当前开发版本增加显式项目作用域、跨 session Hebbian 图、事实删除/正文清理、本地管理服务，以及匹配 baseline 与核心消融验证框架。**Hebbian 和 affect 在完整模式中继续默认开启；关闭仅用于独立对照实验。** 新代码的离线测试不代表已完成用户本机 DSH 或真实成本验证。
+
+- [整体框架与本地运行](docs/FRAMEWORK_V0.4.zh-CN.md)
+- [当前 main 审计与三大验证缺口](docs/AUDIT_2026-10-22.zh-CN.md)
+- [同类项目参考取舍](docs/REFERENCE_REVIEW_2026-10-22.zh-CN.md)
+
 > Adaptive Memory for AI · DeepSeek Harness 插件 · v0.3.0-alpha.1 开发版
 
 [English](README.md) | [简体中文](README.zh-CN.md)
@@ -86,6 +94,7 @@ packages/dsh-adapter/dist/index.js
     associationWeight: 0.15
     emotionWeight: 0.05
     hebbianEnabled: true
+    affectEnabled: true
     emotionAnalysisEnabled: false
     compactionSummaryTokenBudget: 900
     compactionThresholdRatio: 0.80
@@ -248,14 +257,16 @@ REMI 在 `agent/inbox/claimed` 中捕获当前直接用户查询，然后在协�
 
 ## SQLite schema
 
-Schema v3 包含：
+Schema v4 包含：
 
 - `memories`：文本、hashed embedding、importance、affect、访问计数、来源元数据、生命周期状态、有效期和 supersession 链接；
 - `retrieval_traces`：完整的评分和选择 trace；
 - `memory_associations`：session 内规范化的共激活边；
-- `schema_meta`：schema 版本。
+- `session_scopes`：不可变的宿主 owner/project 绑定；
+- `content_tombstones`：精确正文重放抑制；
+- `schema_meta`：schema 版本与图命名空间迁移标志。
 
-打开旧数据库时会执行增量迁移。v3 添加生命周期字段，并把已有记录初始化为 active；迁移不会删除旧数据。
+打开旧数据库时执行增量迁移；v4 增加作用域和 tombstone，并事务性迁移旧 session 图键。升级前备份已停止使用的数据库；回滚边界见整体框架说明。
 
 ## Telemetry 与 RetrievalTrace
 
@@ -292,7 +303,7 @@ node packages/benchmark/dist/cli.js C:/path/to/dataset.jsonl
 pnpm benchmark:graph
 ```
 
-基本输入格式见 [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl)，带预热的图用例见 [examples/benchmark/graph-ablation.jsonl](examples/benchmark/graph-ablation.jsonl)。用例可通过 `primingQueries` 在正式计分查询前构建图状态。runner 提供 `full`、`no_window_hygiene`、`no_hebbian`、`similarity_only`、`no_recency` 和 `no_importance`，并单独输出图活动指标。`hitRateAtK` 只是字符串证据管线检查，不是完整质量评估。
+基本输入格式见 [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl)，带预热的图用例见 [examples/benchmark/graph-ablation.jsonl](examples/benchmark/graph-ablation.jsonl)。用例可通过 `primingQueries` 在正式计分查询前构建图状态。runner 提供 `full`、`no_window_hygiene`、`no_hebbian`、`no_affect`、`similarity_only`、`no_recency` 和 `no_importance`，并单独输出图活动指标。`hitRateAtK` 只是字符串证据管线检查，不是完整质量评估。
 
 ## 工程结构
 
@@ -301,7 +312,8 @@ packages/
   core/             # 与 DSH 解耦的类型、评分、budget、compaction 与 trace
   store-sqlite/     # SQLite MemoryStore 与 schema migration
   dsh-adapter/      # DSH 事件、透明窗口、affect 调用、compaction 与 telemetry
-  benchmark/        # JSONL benchmark runner
+  benchmark/        # Replay, paired validation and independent DSH meter
+  manager/          # Explicit-ID local management service and CLI
 examples/
   deepseek-harness/ # Cordis group 与 root overlay 示例
   benchmark/        # 最小 benchmark 数据集
@@ -322,7 +334,7 @@ pnpm benchmark
 
 当前验证结果：
 
-- v0.3 alpha 开发分支的 9 个测试文件、53 项测试通过；
+- 本框架分支的 13 个测试文件、81 项测试通过（Linux / Node 24）；
 - 所有 workspace package 均可 build 并通过 typecheck；
 - DSH Desktop 2.0.6 隔离 headless smoke test 返回 `REMI_LIVE_OK`；
 - smoke test 的记忆窗口使用 470 / 600 estimated tokens；
@@ -340,7 +352,7 @@ Headless smoke test 使用本地确定性 provider 验证生命周期和 `ctx.ll
 - 不默认提供跨 session 检索作用域。
 - Hashed embedding 是占位实现，跨语言和同义表达召回能力有限。
 - 显式相邻实体隔离目前对 ASCII 标识符形态最可靠；仅含中文的实体区分仍主要依赖词面证据。
-- Current-truth 目前只处理明确的确定性形式，并要求 subject/旧值证据唯一；尚无模型 resolver、合并 UI 或删除 API。
+- Current-truth 目前只处理明确的确定性形式，并要求 subject/旧值证据唯一；尚无模型 resolver 或合并 UI；本地管理入口已提供显式 ID 删除。
 - Current-truth 已完成一轮全新数据库在线验证，包括原生压缩、异常退出恢复和应用内正常重启。该证据仍只覆盖有限的英文协议，不代表已经完成多语言或长周期评估。
 - Hebbian 边表达检索共现，不代表事实或因果。
 - Affect 提示没有跨语言校准、时间平滑或诊断能力。

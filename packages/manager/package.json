@@ -1,0 +1,14 @@
+{
+  "name": "@dsh-memory/manager",
+  "version": "0.4.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "bin": { "remi-memory": "dist/cli.js" },
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@dsh-memory/core": "workspace:*", "@dsh-memory/store-sqlite": "workspace:*" },
+  "engines": { "node": "^22.19.0 || >=24.0.0" },
+  "license": "MIT"
+}

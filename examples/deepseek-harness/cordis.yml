@@ -30,6 +30,7 @@
         associationWeight: 0.15
         emotionWeight: 0.05
         hebbianEnabled: true
+        affectEnabled: true
         hebbianSeedLimit: 4
         hebbianEdgeLimit: 256
         hebbianLearningRate: 0.08

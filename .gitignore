@@ -7,6 +7,8 @@ coverage/
 *.sqlite-wal
 *.jsonl
 !examples/benchmark/sample.jsonl
+!examples/benchmark/graph-ablation.jsonl
+!examples/benchmark/affect-ablation.jsonl
 .dsh-memory/
 upstream-deepseek-harness-*/
 .upstream-deepseek-harness/

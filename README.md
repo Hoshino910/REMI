@@ -1,5 +1,9 @@
 # REMI
 
+## Unreleased framework
+
+The unreleased framework adds explicit project scopes, cross-session Hebbian graphs, lifecycle deletion/scrubbing, a shared local manager and paired baseline/ablation validation. **Hebbian and affect remain enabled in full mode; disabling them is an experimental control only.** Offline tests do not establish live DSH compatibility or production cost savings. See the [framework guide](docs/FRAMEWORK_V0.4.zh-CN.md), [evidence audit](docs/AUDIT_2026-10-22.zh-CN.md), and [reference review](docs/REFERENCE_REVIEW_2026-10-22.zh-CN.md).
+
 > Adaptive Memory for AI · DeepSeek Harness plugin · v0.3.0-alpha.1 development
 
 [English](README.md) | [简体中文](README.zh-CN.md)
@@ -86,6 +90,7 @@ Update the plugin and data paths before starting DSH:
     associationWeight: 0.15
     emotionWeight: 0.05
     hebbianEnabled: true
+    affectEnabled: true
     emotionAnalysisEnabled: false
     compactionSummaryTokenBudget: 900
     compactionThresholdRatio: 0.80
@@ -248,14 +253,16 @@ REMI captures the current direct user query at `agent/inbox/claimed`, then perfo
 
 ## SQLite schema
 
-Schema v3 contains:
+Schema v4 contains:
 
 - `memories`: text, hashed embedding, importance, affect, access counters, source metadata, lifecycle status, validity interval, and supersession links;
 - `retrieval_traces`: complete scoring and selection traces;
 - `memory_associations`: canonical session-local co-activation edges;
-- `schema_meta`: schema version.
+- `session_scopes`: immutable host owner/project bindings;
+- `content_tombstones`: exact-content replay suppression;
+- `schema_meta`: schema version and graph namespace migration flag.
 
-Opening an older database performs additive migrations. v3 adds lifecycle columns and initializes existing records as active; it does not delete prior data.
+Opening an older database performs additive migrations; v4 adds scopes and tombstones and namespaces legacy session graph keys transactionally. Back up an inactive database before upgrading. See the framework guide for rollback limits.
 
 ## Telemetry and RetrievalTrace
 
@@ -292,7 +299,7 @@ Exercise graph priming and the `no_hebbian` control:
 pnpm benchmark:graph
 ```
 
-See [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl) for the basic input shape and [examples/benchmark/graph-ablation.jsonl](examples/benchmark/graph-ablation.jsonl) for a primed graph case. Cases may include `primingQueries` to build graph state before the measured query. The runner exposes `full`, `no_window_hygiene`, `no_hebbian`, `similarity_only`, `no_recency`, and `no_importance`, and reports graph activity separately. Its `hitRateAtK` is a string-evidence pipeline check, not a complete quality evaluation.
+See [examples/benchmark/sample.jsonl](examples/benchmark/sample.jsonl) for the basic input shape and [examples/benchmark/graph-ablation.jsonl](examples/benchmark/graph-ablation.jsonl) for a primed graph case. Cases may include `primingQueries` to build graph state before the measured query. The runner exposes `full`, `no_window_hygiene`, `no_hebbian`, `no_affect`, `similarity_only`, `no_recency`, and `no_importance`, and reports graph activity separately. Its `hitRateAtK` is a string-evidence pipeline check, not a complete quality evaluation.
 
 ## Repository layout
 
@@ -301,7 +308,8 @@ packages/
   core/             # DSH-independent types, scoring, budgeting, compaction, traces
   store-sqlite/     # SQLite MemoryStore and schema migration
   dsh-adapter/      # DSH events, context window, affect calls, compaction, telemetry
-  benchmark/        # JSONL benchmark runner
+  benchmark/        # Replay, paired validation and independent DSH meter
+  manager/          # Explicit-ID local management service and CLI
 examples/
   deepseek-harness/ # Cordis group and root-overlay examples
   benchmark/        # Minimal benchmark dataset
@@ -322,7 +330,7 @@ pnpm benchmark
 
 Current verification results:
 
-- 9 test files and 53 tests pass on the v0.3 alpha development branch;
+- 13 test files and 81 tests pass on this framework branch (Linux / Node 24);
 - every workspace package builds and type-checks;
 - an isolated DSH Desktop 2.0.6 headless smoke test returned `REMI_LIVE_OK`;
 - the smoke-test memory window used 470 of 600 estimated tokens;
@@ -340,7 +348,7 @@ The headless smoke test used a deterministic local provider to verify lifecycle 
 - No default cross-session retrieval scope.
 - Hashed embeddings are placeholders with limited cross-language and synonym recall.
 - Explicit sibling-entity isolation is currently strongest for ASCII identifier-like terms; CJK-only entity separation still depends mainly on lexical evidence.
-- Current-truth matching is limited to explicit deterministic forms and exact subject/value evidence; there is no model-based resolver, merge UI, or deletion API.
+- Current-truth matching is limited to explicit deterministic forms and exact subject/value evidence; there is no model-based resolver or merge UI; explicit-ID deletion is available through the local manager.
 - Current-truth has one clean-database live validation run, including native compaction, crash recovery, and an app-controlled Desktop restart. This remains a bounded English protocol, not a broad multilingual or long-duration evaluation.
 - Hebbian edges express retrieval co-occurrence, not truth or causality.
 - Affect hints have no cross-language calibration, temporal smoothing, or diagnostic meaning.

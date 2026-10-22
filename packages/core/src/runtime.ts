@@ -65,6 +65,7 @@ interface ScoredCandidate {
 }
 
 interface ResolvedConfig {
+  readonly affectEnabled: boolean
   readonly contentAwareRetrievalEnabled: boolean
   readonly windowHygieneEnabled: boolean
   readonly minLexicalCoverage: number
@@ -110,6 +111,7 @@ function resolveWeights(input: Partial<RetrievalWeights> | undefined): Retrieval
 
 function resolveConfig(config: MemoryRuntimeConfig): ResolvedConfig {
   return {
+    affectEnabled: config.affectEnabled ?? true,
     contentAwareRetrievalEnabled: config.contentAwareRetrievalEnabled ?? true,
     windowHygieneEnabled: config.windowHygieneEnabled ?? true,
     minLexicalCoverage: Math.max(0, Math.min(1, config.minLexicalCoverage ?? 0.15)),
@@ -220,7 +222,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       contentHash,
       embedding: hashedEmbedding(content, this.config.embeddingDimensions),
       importance: clamp01(input.importance ?? inferredImportance(input)),
-      emotion: input.emotion ?? inferHeuristicEmotion(content),
+      ...(this.config.affectEnabled ? { emotion: input.emotion ?? inferHeuristicEmotion(content) } : {}),
       status: input.status ?? 'active',
       ...(input.supersedesMemoryId === undefined ? {} : { supersedesMemoryId: input.supersedesMemoryId }),
       ...(input.supersededByMemoryId === undefined ? {} : { supersededByMemoryId: input.supersededByMemoryId }),
@@ -282,7 +284,9 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     const queryEmbedding = hashedEmbedding(aware ? retrievalView(query) : query, this.config.embeddingDimensions)
     const records = query.length === 0
       ? []
-      : await this.store.listBySession(input.sessionId, this.config.maxCandidates, { includeInactive: true })
+      : input.scope === 'project'
+        ? await this.projectRecords(input.sessionId)
+        : await this.store.listBySession(input.sessionId, this.config.maxCandidates, { includeInactive: true })
 
     const lexical = aware ? lexicalRanker(query, records.map(m => m.content)) : []
     const candidates: ScoredCandidate[] = records.map((memory, index) => {
@@ -295,7 +299,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       const lexicalScore = aware ? lexical[index]!.lexicalScore : lexicalSimilarity(query, memory.content)
       const similarityScore = 0.65 * embeddingScore + 0.35 * lexicalScore
       const temporal = recencyScore(memory.createdAt, now, this.config.recencyHalfLifeDays)
-      const affect = emotionSimilarity(input.emotion, memory.emotion)
+      const affect = this.config.affectEnabled ? emotionSimilarity(input.emotion, memory.emotion) : 0
       const finalScore = (this.config.weights.similarity * similarityScore
         + this.config.weights.recency * temporal
         + this.config.weights.importance * memory.importance
@@ -328,6 +332,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     let associationEdgesApplied = 0
     if (this.config.hebbianEnabled && this.store.listAssociations !== undefined && candidates.length > 0) {
       const seedIds = [...candidates]
+        .filter(candidate => input.scope === 'project' || candidate.memory.sessionId === input.sessionId)
         .filter(candidate => candidate.memory.status === 'active')
         .filter(candidate => !aware || (candidate.contentKind === 'statement' && candidate.queryCoverage >= this.config.minLexicalCoverage))
         .filter(candidate => !hygiene || (!candidate.currentQueryEcho && candidate.focusOverlap > 0))
@@ -341,6 +346,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
         input.sessionId,
         seedIds,
         this.config.hebbianEdgeLimit,
+        input.scope ?? 'session',
       )
       associationEdgesRead = edges.length
       for (const edge of edges) {
@@ -439,7 +445,8 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     let reinforcedEdges = 0
     let associationEdgesPruned = 0
     let associationEdgesStored = 0
-    const reinforcementItems = selected.filter(item => item.memory.status === 'active'
+    const reinforcementItems = selected.filter(item => (input.scope === 'project' || item.memory.sessionId === input.sessionId)
+      && item.memory.status === 'active'
       && (!aware || item.contentKind === 'statement'))
     const reinforcementPairsProposed = this.config.hebbianEnabled
       && this.store.reinforceAssociations !== undefined
@@ -452,6 +459,7 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     ) {
       const reinforcement = await this.store.reinforceAssociations({
         sessionId: input.sessionId,
+        scope: input.scope ?? 'session',
         memoryIds: reinforcementItems.map(item => item.memory.id),
         activations: Object.fromEntries(reinforcementItems.map(item => [item.memory.id, clamp01(item.finalScore)])),
         at: now,
@@ -528,12 +536,24 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
     }
   }
 
+  private async projectRecords(sessionId: string): Promise<readonly MemoryRecord[]> {
+    if (this.store.listByScope === undefined) throw new Error('Store does not support project-scoped retrieval')
+    return this.store.listByScope(sessionId, this.config.maxCandidates, { includeInactive: true })
+  }
+
   async compact(input: CompactionRequest): Promise<CompactionResult> {
     const startedAt = Date.now()
     const now = input.now ?? startedAt
+    const blocked = new Set<string>()
+    if (this.store.isContentBlocked !== undefined) {
+      for (const entry of input.entries) {
+        const content = normalizeText(entry.content)
+        if (await this.store.isContentBlocked(input.sessionId, stableHash(content))) blocked.add(content)
+      }
+    }
     const entries = input.entries
       .map((entry, index) => ({ entry, index, content: normalizeText(entry.content) }))
-      .filter(item => item.content.length > 0)
+      .filter(item => item.content.length > 0 && !blocked.has(item.content))
     const latestTimestamp = Math.max(now, ...entries.map(item => item.entry.timestamp))
     const unique = new Map<string, typeof entries[number]>()
     for (const item of entries) unique.set(stableHash(item.content), item)
@@ -549,17 +569,20 @@ export class SelectiveMemoryRuntime implements MemoryRuntime {
       '- This checkpoint is deterministic and may omit nuance; use sidecar retrieval for details.',
     ]
     let consumed = estimateTokens(heading.join('\n'))
+    const budget = Math.max(0, Math.floor(input.tokenBudget))
     const selected: typeof ranked = []
     for (const item of ranked) {
       const rendered = `- [${item.entry.role}] ${truncate(item.content, 600)}`
       const tokens = estimateTokens(rendered)
-      if (consumed + tokens > Math.max(32, input.tokenBudget)) continue
+      if (consumed + tokens > budget) continue
       selected.push(item)
       consumed += tokens
     }
     selected.sort((left, right) => left.index - right.index)
-    const text = [...heading, ...selected.map(item => `- [${item.entry.role}] ${truncate(item.content, 600)}`)].join('\n')
-    const estimatedTokens = estimateTokens(text)
+    const render = () => [...heading, ...selected.map(item => `- [${item.entry.role}] ${truncate(item.content, 600)}`)].join('\n')
+    let text = budget < estimateTokens(heading.join('\n')) ? '' : render()
+    while (text && estimateTokens(text) > budget && selected.length > 0) { selected.pop(); text = render() }
+    const estimatedTokens = text.length === 0 ? 0 : estimateTokens(text)
     return {
       text,
       estimatedTokens,
